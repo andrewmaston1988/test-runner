@@ -15,11 +15,17 @@ const DISTRO = "ubuntu";
 const WSL = { distro: DISTRO, setup: 'TESTING.md, section "The ubuntu distro", has the commands.' };
 
 const HEAD = "8aac8ba6e100a08c1aa33c9286aeecd45a21bf36";
-const REPO_ROOT = "C:\\code\\claude-plugin-marketplace";
+const REPO_ROOT = "C:\\code\\consumer";
+const PACKAGE_DIR = "C:\\code\\consumer\\node_modules\\test-runner";
 const HOME = "/home/ubuntu";
-const MIRROR = `${HOME}/mirror/claude-plugin-marketplace`;
-const SOURCE = "/mnt/c/code/claude-plugin-marketplace/.git";
-const TREE = "/mnt/c/code/claude-plugin-marketplace/";
+const DISTRO_PATH = "/usr/bin:/bin";
+const MIRROR = `${HOME}/mirror/consumer`;
+const SOURCE = "/mnt/c/code/consumer/.git";
+const TREE = "/mnt/c/code/consumer/";
+const RUNNER_ARGS = ["--all", "--mirror"];
+const RUN = ["env", `PATH=${DISTRO_PATH}`, "node", ".test-runner/bin/test-runner.mjs", ...RUNNER_ARGS];
+const PACKAGE_COPY = ["rsync", "-rlt", "--delete", "--exclude", ".git", "--exclude", "node_modules", "--exclude",
+  "test-results", "/mnt/c/code/consumer/node_modules/test-runner/", `${MIRROR}/.test-runner/`];
 
 const plain = (...argv) => ["-d", DISTRO, "--", ...argv];
 const inMirror = (...argv) => ["-d", DISTRO, "--cd", MIRROR, "--", ...argv];
@@ -32,7 +38,8 @@ function makeFake(options = {}) {
     distros = ["docker-desktop", DISTRO],
     listEncoding = "utf16le",
     head = HEAD,
-    commonDir = "C:/code/claude-plugin-marketplace/.git",
+    commonDir = "C:/code/consumer/.git",
+    onPath = [],
     home = HOME,
     mirrorOrigin = null,
     mirrorExists = false,
@@ -58,6 +65,8 @@ function makeFake(options = {}) {
     const inner = args.slice(args.indexOf("--") + 1).join(" ");
     const step = (value) => (failOn && inner.startsWith(failOn) ? { status: 1, stderr: "boom\n" } : value);
     if (inner === "printenv HOME") return step({ status: 0, stdout: Buffer.from(`${home}\n`) });
+    if (inner === "printenv PATH") return step({ status: 0, stdout: Buffer.from(`${DISTRO_PATH}\n`) });
+    if (inner.includes(" sh -c ")) return { status: onPath.includes(args[args.length - 1]) ? 0 : 1 };
     if (inner === "git config --get remote.origin.url") {
       return mirrorOrigin === null
         ? { status: 1, stderr: "fatal: not a git repository\n" }
@@ -71,7 +80,7 @@ function makeFake(options = {}) {
     if (inner === "git fetch --quiet origin") return step({ status: 0 });
     if (inner.startsWith("git checkout ")) return step({ status: 0 });
     if (inner.startsWith("rsync ")) return step({ status: 0 });
-    if (inner.startsWith("node ")) return { status: runStatus };
+    if (inner.startsWith("env PATH=") && inner.includes(" node ")) return { status: runStatus };
     throw new Error(`unexpected wsl.exe call: ${line}`);
   };
 
@@ -107,7 +116,8 @@ async function run(fake, options = {}) {
   const logs = [];
   const code = await runWsl({
     repoRoot: options.repoRoot ?? REPO_ROOT,
-    command: options.command ?? ["node", "scripts/test.mjs", "--all"],
+    packageDir: PACKAGE_DIR,
+    runnerArgs: options.runnerArgs ?? RUNNER_ARGS,
     wsl: options.wsl ?? WSL,
     _spawnSync: fake.spawn,
     _fs: makeFs(options.repoExists ?? true),
@@ -166,7 +176,7 @@ test("the distro list decodes from UTF-16LE and from plain UTF-8", () => {
   assert.deepEqual(distroList(Buffer.from("\uFEFFubuntu\r\n", "utf16le")), ["ubuntu"]);
 });
 
-test("a first sync clones, pins the checkout, rsyncs and then runs the command", async () => {
+test("a first sync clones, pins the checkout, rsyncs, copies the package and then runs it", async () => {
   const fake = makeFake();
   const { code, logs } = await run(fake);
 
@@ -176,6 +186,7 @@ test("a first sync clones, pins the checkout, rsyncs and then runs the command",
     [
       ["-l", "-q"],
       plain("printenv", "HOME"),
+      plain("printenv", "PATH"),
       inMirror("git", "config", "--get", "remote.origin.url"),
       plain("mkdir", "-p", `${HOME}/mirror`),
       plain("test", "-d", MIRROR),
@@ -191,10 +202,13 @@ test("a first sync clones, pins the checkout, rsyncs and then runs the command",
         ".git",
         "--exclude",
         "node_modules",
+        "--exclude",
+        ".test-runner",
         TREE,
         `${MIRROR}/`,
       ),
-      inMirror("node", "scripts/test.mjs", "--all"),
+      plain(...PACKAGE_COPY),
+      inMirror(...RUN),
     ],
   );
   assert.ok(logs.length > 0, "the caller wants progress lines");
@@ -212,7 +226,7 @@ test("a mirror already cloned from this repo syncs without cloning again", async
   assert.ok(lines.includes("git fetch --quiet origin"));
   assert.ok(lines.some((l) => l.startsWith("git checkout --force --detach ")));
   assert.ok(lines.some((l) => l.startsWith("rsync -rlt ")));
-  assert.equal(lines[lines.length - 1], "node scripts/test.mjs --all");
+  assert.equal(lines[lines.length - 1], RUN.join(" "));
 });
 
 test("a mirror cloned from another remote is replaced, not reused", async () => {
@@ -237,6 +251,7 @@ test("the rsync copies no permissions and keeps .git and node_modules", async ()
   await run(fake);
 
   const args = fake.calls.find((c) => c.args.includes("rsync")).args;
+  assert.ok(args.includes(TREE), "the first rsync is the tree");
   assert.ok(args.includes("-rlt"), args.join(" "));
   assert.ok(!args.includes("-a"), "-a copies /mnt/c's 777 modes and dirties every file");
   assert.ok(!args.includes("-p"), "-p copies modes too");
@@ -264,7 +279,7 @@ test("wsl.exe is never given a shell string", async () => {
       for (const arg of args.slice(args.indexOf("--") + 1)) {
         assert.doesNotMatch(
           arg,
-          /^(git|rsync|node|rm|mkdir|test|printenv)\s+\S/,
+          /^(git|rsync|node|rm|mkdir|test|printenv|env)\s+\S/,
           `a whole command reached wsl.exe as one argument: ${arg}`,
         );
       }
@@ -285,12 +300,12 @@ test("the command's exit code is the runner's exit code", async () => {
   assert.equal((await run(makeFake({ runStatus: 7 }))).code, 7);
 });
 
-test("the command runs in the mirror with inherited stdio", async () => {
+test("the package runs in the mirror with inherited stdio", async () => {
   const fake = makeFake();
-  await run(fake, { command: ["node", "scripts/test.mjs", "--all"] });
+  await run(fake);
 
   const last = fake.calls[fake.calls.length - 1];
-  assert.deepEqual(last.args, inMirror("node", "scripts/test.mjs", "--all"));
+  assert.deepEqual(last.args, inMirror(...RUN));
   assert.equal(last.opts.stdio, "inherit", "output must stream, not buffer behind the run");
 });
 
@@ -300,7 +315,7 @@ test("a failed mirror step stops before the command runs", async () => {
 
   assert.equal(code, 2);
   assert.match(stderr, /git fetch failed/);
-  assert.ok(!fake.innerLines().some((l) => l.startsWith("node ")), "the suite must not run");
+  assert.ok(!fake.innerLines().some((l) => l.includes(" node ")), "the suite must not run");
 });
 
 test("a repository root that does not exist exits 2", async () => {
@@ -330,12 +345,12 @@ test("a path already on the Linux side is left alone", () => {
 test("a linked worktree's common dir converts to the clone source", async () => {
   // This worktree is a linked one: `--git-common-dir` prints the main
   // checkout's absolute path, which is what makes the clone see local commits.
-  const fake = makeFake({ commonDir: "C:/code/claude-plugin-marketplace/.git" });
+  const fake = makeFake({ commonDir: "C:/code/consumer/.git" });
   await run(fake);
 
   const clone = fake.calls.find((c) => c.args.includes("clone")).args;
-  assert.equal(clone[clone.length - 2], "/mnt/c/code/claude-plugin-marketplace/.git");
-  assert.equal(clone[clone.length - 1], `${HOME}/mirror/claude-plugin-marketplace`);
+  assert.equal(clone[clone.length - 2], "/mnt/c/code/consumer/.git");
+  assert.equal(clone[clone.length - 1], `${HOME}/mirror/consumer`);
 });
 
 test("a relative common dir resolves against the worktree root", async () => {
@@ -355,4 +370,47 @@ test("the rsync source is the worktree root, converted, with a trailing slash", 
   assert.equal(source, TREE);
   assert.ok(source.endsWith("/"), "a missing trailing slash copies the directory, not its contents");
   assert.equal(args[args.length - 1], `${MIRROR}/`);
+});
+
+// --- wsl.keep, wsl.path, wsl.requires and the package copy -------------------
+
+test("A7: wsl.path entries, ~ expanded, lead the PATH every mirror run gets", async () => {
+  const fake = makeFake();
+  await run(fake, { wsl: { ...WSL, path: ["~/.cargo/bin", "/opt/tool/bin"] } });
+  const last = fake.calls[fake.calls.length - 1].args;
+  assert.equal(last[last.indexOf("--") + 1], "env");
+  assert.equal(last[last.indexOf("--") + 2], `PATH=${HOME}/.cargo/bin:/opt/tool/bin:${DISTRO_PATH}`);
+});
+
+test("A7: a missing wsl.requires tool exits 2 naming it, before any sync or run", async () => {
+  const fake = makeFake({ onPath: ["cargo"] });
+  const { result: code, stderr } = await withStderr(async () => (await run(fake, {
+    wsl: { ...WSL, requires: ["cargo", "no-such-tool"] },
+  })).code);
+  assert.equal(code, 2);
+  assert.match(stderr, /no-such-tool is not on PATH in ubuntu/);
+  const lines = fake.innerLines();
+  const ran = lines.some((l) => l.startsWith("git clone") || l.startsWith("rsync") || l.includes(" node "));
+  assert.ok(!ran, lines.join("\n"));
+  const check = fake.calls.find((c) => c.args.includes("no-such-tool")).args;
+  assert.deepEqual(check.slice(check.indexOf("--") + 1), [
+    "env", `PATH=${DISTRO_PATH}`, "sh", "-c", 'command -v -- "$1"', "requires", "no-such-tool",
+  ], "the tool name is an argument, never part of the script");
+});
+
+test("wsl.keep paths are excluded from the tree sync, so --delete leaves them", async () => {
+  const fake = makeFake();
+  await run(fake, { wsl: { ...WSL, keep: ["target"] } });
+  const args = fake.calls.find((c) => c.args.includes(TREE)).args;
+  assert.ok(args.join(" ").includes("--exclude target"), args.join(" "));
+});
+
+test("A11: the mirror runs the host's package copy, never the consumer's node_modules", async () => {
+  const fake = makeFake();
+  await run(fake);
+  const lines = fake.innerLines();
+  const copy = lines.indexOf(PACKAGE_COPY.join(" "));
+  const runAt = lines.indexOf(RUN.join(" "));
+  assert.ok(copy !== -1 && runAt > copy, lines.join("\n"));
+  assert.ok(!lines.some((l) => l.includes("node_modules/test-runner/bin")), "the consumer's installed copy ran");
 });

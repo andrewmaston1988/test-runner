@@ -4,21 +4,26 @@
 import { spawn, spawnSync } from "node:child_process";
 import * as nodeFs from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ChangedSetError, changedSet, resolveBase } from "./changed.mjs";
-import { ConfigError, configPathFor, loadConfigFile, normalizeConfig } from "./config.mjs";
+import { CONFIG_NAME, ConfigError, configPathFor, loadConfigFile, normalizeConfig, validateConfig } from "./config.mjs";
 import { orphanTests } from "./orphans.mjs";
-import { killTree, runSuites, summaryLine } from "./run.mjs";
+import { hostPlatform, installIfNeeded, killTree, needsBase, runSuites, summaryLine } from "./run.mjs";
 import { select, wholeEntries } from "./select.mjs";
 
 const USAGE = `usage: test-runner [--all] [--suite <name>] [--against <ref>] [--list] [--wsl]
-       [--reporter=agent|default] [--fast] [--if-selected] [--orphans] [--config <path>]`;
+       [--reporter=agent|default] [--fast] [--if-selected] [--orphans] [--config <path>]
+       [--platform windows]`;
 
 function usage(message, _err) {
   _err(`[test] ${message}`);
   _err(USAGE);
   return 2;
 }
+
+/** This package's root: what `--wsl` copies into the mirror. */
+const PACKAGE_DIR = fileURLToPath(new URL("..", import.meta.url));
 
 /** `--name value` or `--name=value`; null when the value is missing. */
 function valueOf(argv, i, name) {
@@ -30,7 +35,8 @@ function valueOf(argv, i, name) {
 function parseArgs(argv) {
   const opts = {
     suiteName: null, all: false, listOnly: false, wsl: false, against: null,
-    fast: false, ifSelected: false, orphansOnly: false, reporter: null, config: null, help: false,
+    fast: false, ifSelected: false, orphansOnly: false, reporter: null, config: null, platform: null,
+    mirror: false, help: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -40,6 +46,7 @@ function parseArgs(argv) {
     else if (arg === "--fast") opts.fast = true;
     else if (arg === "--if-selected") opts.ifSelected = true;
     else if (arg === "--orphans") opts.orphansOnly = true;
+    else if (arg === "--mirror") opts.mirror = true; // set by --wsl for the run inside the mirror
     else if (arg === "--help" || arg === "-h") opts.help = true;
     else if (arg === "--suite" || arg.startsWith("--suite=")) {
       const { value, next } = valueOf(argv, i, "--suite");
@@ -55,6 +62,11 @@ function parseArgs(argv) {
       const { value, next } = valueOf(argv, i, "--config");
       if (!value) return { error: "--config needs a path" };
       opts.config = value;
+      i = next;
+    } else if (arg === "--platform" || arg.startsWith("--platform=")) {
+      const { value, next } = valueOf(argv, i, "--platform");
+      if (value !== "windows") return { error: `--platform takes windows, not ${value ?? "nothing"}` };
+      opts.platform = value;
       i = next;
     } else if (arg === "--reporter" || arg.startsWith("--reporter=")) {
       const { value, next } = valueOf(argv, i, "--reporter");
@@ -80,6 +92,7 @@ function parseArgs(argv) {
       ["--fast", opts.fast],
       ["--reporter", Boolean(opts.reporter)],
       ["--orphans", opts.orphansOnly],
+      ["--platform", Boolean(opts.platform)],
     ];
     const conflict = flags.find(([, given]) => given);
     if (conflict) return { error: `--wsl cannot be combined with ${conflict[0]}` };
@@ -91,6 +104,12 @@ function parseArgs(argv) {
 async function readConfig({ repoRoot, override, _config, _fs }) {
   const configPath = configPathFor({ repoRoot, override });
   const raw = _config ?? await loadConfigFile({ repoRoot, configPath, _exists: _fs.existsSync });
+  try {
+    validateConfig(raw);
+  } catch (err) {
+    if (err instanceof ConfigError) err.message = `${configPath}: ${err.message}`;
+    throw err;
+  }
   return normalizeConfig(raw, { configPath });
 }
 
@@ -115,6 +134,11 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     _log(USAGE);
     return 0;
   }
+  // The Windows half of a Windows consumer's gate; on any other host it would
+  // run nothing and report green.
+  if (opts.platform === "windows" && hostPlatform(_platform) !== "windows") {
+    return usage(`--platform windows runs only on a Windows host, not ${_platform}`, _err);
+  }
 
   let repoRoot;
   try {
@@ -138,14 +162,28 @@ export async function main(argv = process.argv.slice(2), options = {}) {
   if (opts.wsl) {
     if (!config.wsl) return usage("--wsl needs a `wsl` block in the config naming the distro", _err);
     const { runWsl } = await import("./wsl.mjs");
+    const configArgs = config.configPath === CONFIG_NAME ? [] : ["--config", config.configPath];
     return await runWsl({
       repoRoot,
-      command: ["node", "node_modules/test-runner/bin/test-runner.mjs", "--all"],
+      packageDir: PACKAGE_DIR,
+      runnerArgs: ["--all", "--mirror", ...configArgs],
       wsl: config.wsl,
       _spawnSync,
       _fs,
       log: (line) => _log(line),
     });
+  }
+
+  if (opts.mirror) {
+    // The rsync never carries node_modules, so the mirror installs its own
+    // Linux dependencies once per lockfile. The runner itself came from the
+    // host's copy, so this install cannot replace the code that is running.
+    const installed = installIfNeeded({ cwd: repoRoot, install: ["npm", "ci"], _fs, _spawnSync, _platform });
+    if (installed.error) {
+      _err(`[test] mirror: ${installed.error}`);
+      return 2;
+    }
+    if (installed.installed) _log("[test] mirror: installed (lockfile changed)");
   }
 
   const orphanOptions = { repoRoot, notRun: config.notRun, skipDirs: config.skipDirs };
@@ -169,11 +207,11 @@ export async function main(argv = process.argv.slice(2), options = {}) {
 
   let entries;
   let selected = null;
+  let base = null;
   let whole = Boolean(opts.all || opts.suiteName) && !opts.ifSelected;
   if (whole) {
     entries = wholeEntries(chosen, { repoRoot, config });
   } else {
-    let base;
     let changed;
     try {
       base = resolveBase({ repoRoot, against: opts.against, candidates: config.base, _spawnSync });
@@ -205,6 +243,9 @@ export async function main(argv = process.argv.slice(2), options = {}) {
       if (result.docsOnly) {
         _err(`[test] docs-only: ${changed.length} changed file(s) select no test; nothing to run for them`);
       }
+      if (result.unowned.length > 0) {
+        _err(`[test] unowned: ${result.unowned.length} changed file(s) no suite owns: ${result.unowned.join(", ")}`);
+      }
       selected = new Set(entries.map((entry) => `${entry.suite}\0${entry.file}`));
     }
   }
@@ -220,12 +261,23 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     _log("[test] nothing selected");
     return 0;
   }
+  // `{base}` in a command run needs a ref even when no diff was measured.
+  if (base === null && needsBase(chosen)) {
+    try {
+      base = resolveBase({ repoRoot, against: opts.against, candidates: config.base, _spawnSync });
+    } catch (err) {
+      if (!(err instanceof ChangedSetError)) throw err;
+      return usage(`a command run names {base}: ${err.message}`, _err);
+    }
+  }
 
   const results = await runSuites(chosen, {
     selected,
     fast: opts.fast,
     reporter: opts.reporter,
     config,
+    platformMode: opts.platform === "windows" ? "windows" : "plain",
+    diffBase: base,
     repoRoot,
     resultsDir: join(repoRoot, "test-results"),
     _spawn,

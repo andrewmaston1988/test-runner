@@ -78,11 +78,26 @@ function repoNameOf(commonDir) {
   return parts[parts.length - 1] || "repo";
 }
 
+/** Where the host's copy of this package lives inside the mirror. */
+export const MIRROR_PACKAGE = ".test-runner";
+
+/** `~` and `~/x` against the distro's home; anything else as written. */
+function expandHome(entry, home) {
+  if (entry === "~") return home;
+  return entry.startsWith("~/") ? `${home}/${entry.slice(2)}` : entry;
+}
+
 /**
- * Mirror `repoRoot` and run `command` (an argv array, e.g. `["node","scripts/test.mjs","--all"]`)
- * inside it. Resolves to the command's exit code, or 2 when it never ran.
+ * Mirror `repoRoot`, copy this package (`packageDir`) into the mirror, and run
+ * it there with `runnerArgs`. Resolves to that run's exit code, or 2 when it
+ * never ran.
+ *
+ * `wsl.exe -d <distro> --cd <dir> -- <argv>` starts no login shell, so a
+ * user-installed toolchain (`~/.cargo/bin`) is not on PATH: every mirror run
+ * gets `wsl.path` prepended, and `wsl.requires` is checked against that PATH
+ * before anything syncs.
  */
-export async function runWsl({ repoRoot, command, wsl: wslConfig, _spawnSync, _fs, log }) {
+export async function runWsl({ repoRoot, packageDir, runnerArgs, wsl: wslConfig, _spawnSync, _fs, log }) {
   const DISTRO = wslConfig.distro;
   const wslExe = (argv, opts = {}) => {
     const r = _spawnSync("wsl.exe", argv, { encoding: "buffer", ...opts });
@@ -129,23 +144,33 @@ export async function runWsl({ repoRoot, command, wsl: wslConfig, _spawnSync, _f
   const name = repoNameOf(sourceUrl);
 
   const homeResult = wslExe(inDistro("printenv", "HOME"));
-  const home = text(homeResult.stdout).trim();
-  if (homeResult.status !== 0 || home === "") {
-    process.stderr.write(`[wsl] cannot read the home directory in ${DISTRO}\n`);
+  const home = text(homeResult.stdout).trim().replace(/\/+$/, "");
+  const pathResult = wslExe(inDistro("printenv", "PATH"));
+  if (homeResult.status !== 0 || home === "" || pathResult.status !== 0) {
+    process.stderr.write(`[wsl] cannot read the home directory and PATH in ${DISTRO}\n`);
     return 2;
   }
-  const mirror = `${home.replace(/\/+$/, "")}/mirror/${name}`;
+  const extra = (wslConfig.path || []).map((entry) => expandHome(entry, home));
+  const pathValue = [...extra, text(pathResult.stdout).trim()].filter(Boolean).join(":");
+  const withPath = (...argv) => ["env", `PATH=${pathValue}`, ...argv];
+
+  // The script is a constant and the tool name its positional argument, so
+  // nothing from the config is ever parsed by the shell.
+  for (const tool of wslConfig.requires || []) {
+    if (wslExe(inDistro(...withPath("sh", "-c", 'command -v -- "$1"', "requires", tool))).status !== 0) {
+      process.stderr.write(`[wsl] ${tool} is not on PATH in ${DISTRO}; install it, or add its directory to wsl.path\n`);
+      return 2;
+    }
+  }
+
+  const mirror = `${home}/mirror/${name}`;
 
   // A mirror holding some other checkout would fetch from the wrong remote and
   // never see a local commit. Nothing in a mirror is worth keeping, so replace
   // it rather than fail.
   const origin = wslExe(at(mirror, "git", "config", "--get", "remote.origin.url"));
   if (!(origin.status === 0 && text(origin.stdout).trim() === sourceUrl)) {
-    if (
-      run(`mkdir -p ${home}/mirror`, inDistro("mkdir", "-p", `${home.replace(/\/+$/, "")}/mirror`)) !== 0
-    ) {
-      return 2;
-    }
+    if (run(`mkdir -p ${home}/mirror`, inDistro("mkdir", "-p", `${home}/mirror`)) !== 0) return 2;
     if (wslExe(inDistro("test", "-d", mirror)).status === 0) {
       log(`wsl: replacing ${mirror}: not a clone of ${sourceUrl}`);
       if (run(`removing ${mirror}`, inDistro("rm", "-rf", mirror)) !== 0) return 2;
@@ -163,21 +188,22 @@ export async function runWsl({ repoRoot, command, wsl: wslConfig, _spawnSync, _f
   // Forced: the last sync's rsync left tracked files dirty, and a plain
   // checkout then refuses to move HEAD. The mirror holds nothing of its own.
   if (run("git checkout", at(mirror, "git", "checkout", "--force", "--detach", sha)) !== 0) return 2;
+  // `--delete` leaves an excluded path alone, which is what keeps a build
+  // cache (`wsl.keep`), the install and the package copy across syncs.
+  const keep = [".git", "node_modules", MIRROR_PACKAGE, ...(wslConfig.keep || [])];
   const source = `${toWslPath(repoRoot).replace(/\/+$/, "")}/`;
-  const rsync = [
-    "rsync",
-    "-rlt",
-    "--delete",
-    "--exclude",
-    ".git",
-    "--exclude",
-    "node_modules",
-    source,
-    `${mirror}/`,
-  ];
+  const rsync = ["rsync", "-rlt", "--delete", ...keep.flatMap((path) => ["--exclude", path]), source, `${mirror}/`];
   if (run("rsync", inDistro(...rsync)) !== 0) return 2;
 
-  log(`wsl: running ${command.join(" ")} in ${mirror}`);
+  // The mirror runs this package, not the consumer's installed copy: zero
+  // dependencies make the directory complete, and it pins the host's version.
+  const pkg = `${toWslPath(packageDir).replace(/\/+$/, "")}/`;
+  const copy = ["rsync", "-rlt", "--delete", "--exclude", ".git", "--exclude", "node_modules", "--exclude", "test-results",
+    pkg, `${mirror}/${MIRROR_PACKAGE}/`];
+  if (run("package copy", inDistro(...copy)) !== 0) return 2;
+
+  const command = withPath("node", `${MIRROR_PACKAGE}/bin/test-runner.mjs`, ...runnerArgs);
+  log(`wsl: running ${command.slice(2).join(" ")} in ${mirror}`);
   const r = _spawnSync("wsl.exe", at(mirror, ...command), { stdio: "inherit" });
   return r && typeof r.status === "number" ? r.status : 1;
 }

@@ -5,6 +5,7 @@
 import * as nodeFs from "node:fs";
 import { join, posix } from "node:path";
 
+import { CONFIG_NAME } from "./config.mjs";
 import { SKIP_DIRS, closureOf, makeIndex, skipDirsFor } from "./graph.mjs";
 
 export { SKIP_DIRS };
@@ -114,7 +115,7 @@ function globHome(run, glob) {
 }
 
 /** The shortest leading directory of `path` that a `packages` glob matches, or
- *  null. `packages: ["plugins/*"]` makes `plugins/swarm` the package of
+ *  null. `packages: ["packages/*"]` makes `packages/api` the package of
  *  everything below it. */
 export function packageOf(path, isPackage) {
   const parts = path.split("/").filter(Boolean);
@@ -165,12 +166,20 @@ export function suiteRoot(suite, isPackage) {
   return first ? globHome(first, first.globs[0]) : "";
 }
 
+/** A command run's selection key, standing where a glob run has file paths:
+ *  `command:<label>`, or `command:<index>` for an unlabelled run. */
+export function commandKey(run, index) {
+  return `command:${run.label ?? index}`;
+}
+
+/** A suite's glob files, sorted, then its command runs' keys in run order. */
 function suiteFiles(suite, repoRoot, skipDirs, _readdirSync) {
   const out = new Set();
   for (const run of suite.runs) {
     for (const file of expandRun(run, { repoRoot, skipDirs, _readdirSync })) out.add(file);
   }
-  return [...out].sort();
+  const commands = suite.runs.flatMap((run, index) => (run.command ? [commandKey(run, index)] : []));
+  return [...[...out].sort(), ...commands];
 }
 
 // --- Selection -------------------------------------------------------------
@@ -179,8 +188,13 @@ function suiteFiles(suite, repoRoot, skipDirs, _readdirSync) {
  *
  *  `why` is `changed: <path>` for a file the graph reached, `fallback: <path>`
  *  for a whole suite a change could not be attributed to, and `windows` for a
- *  `*.win.test.mjs`, which always runs on a Windows machine. `config` supplies
- *  `packages`, `fallback`, `selectAll`, `repoSuite` and `skipDirs`. */
+ *  `*.win.test.mjs`, which always runs on a Windows machine. A command run is
+ *  selected as a unit: by a change its `paths` match, by any change when it has
+ *  none, and by a select-all change. `config` supplies `packages`, `fallback`,
+ *  `selectAll`, `repoSuite`, `skipDirs` and `configPath`.
+ *
+ *  `unowned` lists the non-Markdown changes nothing claimed. With a `repoSuite`
+ *  that suite takes them instead, so either way none is dropped as docs-only. */
 export function select({
   suites,
   changed,
@@ -192,7 +206,14 @@ export function select({
   const skipDirs = skipDirsFor(config);
   const isPackage = anyGlob(config.packages);
   const isFallback = anyGlob(config.fallback);
-  const isSelectAll = anyGlob(config.selectAll);
+  const selectAllGlob = anyGlob(config.selectAll);
+  // The config decides what every run does, and the root lockfile pins the
+  // runner's own version: neither change can be scoped.
+  const isSelectAll = (path) => path === (config.configPath ?? CONFIG_NAME) || path === "package-lock.json"
+    || selectAllGlob(path);
+  const commandRuns = suites.flatMap((suite) => suite.runs.flatMap((run, index) => (run.command
+    ? [{ suite, key: commandKey(run, index), matches: run.paths ? anyGlob(run.paths) : null }]
+    : [])));
 
   const indexes = new Map();
   const filesCache = new Map();
@@ -234,9 +255,20 @@ export function select({
   }
   const repoSuite = suites.find((suite) => suite.name === config.repoSuite) || null;
 
-  let attributed = 0;
+  const unowned = [];
   for (const path of changed) {
-    let selected = false;
+    if (isSelectAll(path)) {
+      for (const suite of suites) addWhole(suite, `fallback: ${path}`);
+      continue;
+    }
+    let claimed = false; // by a command run's `paths`
+    for (const { suite, key, matches } of commandRuns) {
+      if (!matches) add(suite, key, `changed: ${path}`);
+      else if (matches(path)) {
+        add(suite, key, `changed: ${path}`);
+        claimed = true;
+      }
+    }
     const pkg = packageOf(path, isPackage);
     const covering = pkg ? byPackage.get(pkg) || [] : [];
     const owners = [];
@@ -244,28 +276,24 @@ export function select({
       if (path === dir || path.startsWith(`${dir}/`)) owners.push(...owned);
     }
 
-    if (isSelectAll(path)) {
-      for (const suite of suites) addWhole(suite, `fallback: ${path}`);
-      selected = true;
-    } else if (covering.length > 0) {
+    if (covering.length > 0) {
       if (isFallback(path)) {
         for (const suite of covering) addWhole(suite, `fallback: ${path}`);
-        selected = true;
       } else {
+        let reached = false;
         for (const suite of covering) {
           const index = indexFor(suite);
           for (const file of filesFor(suite)) {
             if (closureOf(file, index).has(path)) {
               add(suite, file, `changed: ${path}`);
-              selected = true;
+              reached = true;
             }
           }
         }
         // A non-Markdown file in no closure is invisible to the graph, so the
         // package's whole suite runs. A Markdown file is assumed doc-only.
-        if (!selected && !path.endsWith(".md")) {
+        if (!reached && !path.endsWith(".md")) {
           for (const suite of covering) addWhole(suite, `fallback: ${path}`);
-          selected = true;
         }
       }
     } else if (owners.length > 0) {
@@ -273,15 +301,13 @@ export function select({
       // own home runs that suite whole, as an unreached package file does.
       if (!path.endsWith(".md")) {
         for (const suite of owners) addWhole(suite, `fallback: ${path}`);
-        selected = true;
       }
-    } else if (repoSuite && !path.endsWith(".md")) {
-      // Owned by nothing else: the repo suite takes it, so a change no suite
-      // names is never dropped as docs-only.
-      addWhole(repoSuite, `fallback: ${path}`);
-      selected = true;
+    } else if (!claimed && !path.endsWith(".md")) {
+      // Owned by nothing else: the repo suite takes it, or it is reported, so
+      // a change no suite names is never dropped as docs-only.
+      if (repoSuite) addWhole(repoSuite, `fallback: ${path}`);
+      else unowned.push(path);
     }
-    if (selected) attributed += 1;
   }
 
   for (const suite of suites) {
@@ -297,7 +323,8 @@ export function select({
       if (reason) entries.push({ suite: suite.name, file, why: reason });
     }
   }
-  return { entries, docsOnly: changed.length > 0 && attributed === 0 };
+  const docsOnly = changed.length > 0 && unowned.length === 0 && entries.every((entry) => entry.why === "windows");
+  return { entries, docsOnly, unowned };
 }
 
 /** Every file of every suite, as `--all` and `--suite` see them. */

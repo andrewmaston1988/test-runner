@@ -8,7 +8,37 @@ import { join, posix } from "node:path";
 
 import { readTimings, slowFiles } from "./fast.mjs";
 import { skipDirsFor } from "./graph.mjs";
-import { expandRun } from "./select.mjs";
+import { commandKey, expandRun } from "./select.mjs";
+import { commandSpawn } from "./spawn-command.mjs";
+
+// --- Platform --------------------------------------------------------------
+
+const WIN_TEST = /\.win\.test\.mjs$/;
+
+/** The config's name for this host, or null on a host with no pinned runs. */
+export function hostPlatform(platform = process.platform) {
+  if (platform === "win32") return "windows";
+  if (platform === "linux") return "linux";
+  return null;
+}
+
+/** Whether a run or file pinned to `platform` executes in this invocation. A
+ *  plain run takes `any` plus the host's own; `--platform windows` takes only
+ *  `windows`. So on Windows, `--platform windows` plus `--wsl` (a plain run on
+ *  Linux) execute every run exactly once between them. */
+export function platformAllows(platform, { mode = "plain", host }) {
+  if (mode === "windows") return platform === "windows";
+  return platform === "any" || platform === host;
+}
+
+/** A `*.win.test.mjs` is pinned to Windows whatever its run says. */
+export function filePlatform(file, run) {
+  return WIN_TEST.test(file) ? "windows" : run.platform ?? "any";
+}
+
+function labelOf(suite, run) {
+  return `${suite.name}${run.label ? `[${run.label}]` : ""}`;
+}
 
 /** A file URL, so the reporter loads from any working directory and any
  *  checkout -- including the WSL mirror. */
@@ -101,52 +131,10 @@ export function inFlightFiles(path, { now = Date.now, _fs = nodeFs } = {}) {
       : entry.file));
 }
 
-async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now }) {
-  const cwdAbs = join(repoRoot, run.cwd);
-  const label = `${suite.name}${run.label ? `[${run.label}]` : ""}`;
-  const logPath = join(resultsDir, `${label}.log`);
-  try {
-    _fs.unlinkSync(logPath); // a killed run must not be pointed at the last run's log
-  } catch {
-    // Nothing to clear.
-  }
-  const started = _now();
-  const reporterEnv = {
-    TEST_RUN_LABEL: label,
-    TEST_REPO_ROOT: repoRoot,
-    TEST_RESULTS_DIR: resultsDir,
-    ...(reporter ? { TEST_REPORTER: reporter } : {}),
-  };
-
-  if (run.install) {
-    const installed = installIfNeeded({ cwd: cwdAbs, install: run.install, _fs, _spawnSync, _platform });
-    if (installed.error) {
-      return { suite: suite.name, label, ok: false, status: "fail", reason: installed.error, files, durationMs: _now() - started };
-    }
-    if (installed.installed) _log(`[test] ${label}: installed (lockfile changed)`);
-  }
-
-  const args = [];
-  if (run.envFile) args.push(`--env-file=${run.envFile}`);
-  const base = run.cwd === "." || run.cwd === "" ? "." : run.cwd;
-  args.push("--test", `--test-reporter=${REPORTER_URL}`, "--test-reporter-destination=stdout",
-    ...files.map((file) => posix.relative(base, file)));
-
-  let child;
-  try {
-    child = _spawn(process.execPath, args, {
-      cwd: cwdAbs,
-      env: { ...process.env, ...(run.env || {}), ...reporterEnv },
-      stdio: "inherit",
-      detached: _platform !== "win32", // its own process group, so killTree can reach it
-      windowsHide: true,
-    });
-  } catch (err) {
-    return { suite: suite.name, label, ok: false, status: "fail", reason: err.message, files, durationMs: _now() - started };
-  }
-
-  const inFlight = join(resultsDir, `${label}.${child.pid}.inflight.json`);
-
+/** Wait for `child` to close, killing its tree at the run's timeout. `onSettle`
+ *  runs once either way, before the result resolves; `stillRunning` names what a
+ *  killed run had in flight. */
+function settle(child, { run, started, base, _killTree, _platform, _spawnSync, _now, onSettle = () => {}, stillRunning = () => [] }) {
   return new Promise((resolve) => {
     let settled = false;
     let timer = null;
@@ -154,15 +142,11 @@ async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, _spaw
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      try {
-        _fs.unlinkSync(inFlight); // the record is for a timeout, not the next run
-      } catch {
-        // Never written, or already cleared by a reporter that exited cleanly.
-      }
-      resolve({ suite: suite.name, label, files, durationMs: _now() - started, ...result });
+      onSettle();
+      resolve({ ...base, durationMs: _now() - started, ...result });
     };
     timer = setTimeout(() => {
-      const still = inFlightFiles(inFlight, { now: _now, _fs });
+      const still = stillRunning();
       _killTree(child.pid, { platform: _platform, _spawnSync });
       const detail = still.length > 0 ? `; still running: ${still.join(", ")}` : "";
       finish({ ok: false, status: "timeout", reason: `no exit within ${run.timeoutMs}ms${detail}`, exitCode: null });
@@ -177,16 +161,120 @@ async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, _spaw
   });
 }
 
-/** Run every suite (all its runs) or only the selected files.
+/** The run's install, when it has one: a failure result to report, else null. */
+function install({ run, cwdAbs, base, started, _fs, _spawnSync, _platform, _log, _now }) {
+  if (!run.install) return null;
+  const installed = installIfNeeded({ cwd: cwdAbs, install: run.install, _fs, _spawnSync, _platform });
+  if (installed.error) {
+    return { ...base, ok: false, status: "fail", reason: installed.error, durationMs: _now() - started };
+  }
+  if (installed.installed) _log(`[test] ${base.label}: installed (lockfile changed)`);
+  return null;
+}
+
+async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now }) {
+  const cwdAbs = join(repoRoot, run.cwd);
+  const label = labelOf(suite, run);
+  const base = { suite: suite.name, label, files };
+  const logPath = join(resultsDir, `${label}.log`);
+  try {
+    _fs.unlinkSync(logPath); // a killed run must not be pointed at the last run's log
+  } catch {
+    // Nothing to clear.
+  }
+  const started = _now();
+  const reporterEnv = {
+    TEST_RUN_LABEL: label,
+    TEST_REPO_ROOT: repoRoot,
+    TEST_RESULTS_DIR: resultsDir,
+    ...(reporter ? { TEST_REPORTER: reporter } : {}),
+  };
+
+  const failedInstall = install({ run, cwdAbs, base, started, _fs, _spawnSync, _platform, _log, _now });
+  if (failedInstall) return failedInstall;
+
+  const args = [];
+  if (run.envFile) args.push(`--env-file=${run.envFile}`);
+  const cwdBase = run.cwd === "." || run.cwd === "" ? "." : run.cwd;
+  args.push("--test", `--test-reporter=${REPORTER_URL}`, "--test-reporter-destination=stdout",
+    ...files.map((file) => posix.relative(cwdBase, file)));
+
+  let child;
+  try {
+    child = _spawn(process.execPath, args, {
+      cwd: cwdAbs,
+      env: { ...process.env, ...(run.env || {}), ...reporterEnv },
+      stdio: "inherit",
+      detached: _platform !== "win32", // its own process group, so killTree can reach it
+      windowsHide: true,
+    });
+  } catch (err) {
+    return { ...base, ok: false, status: "fail", reason: err.message, durationMs: _now() - started };
+  }
+
+  const inFlight = join(resultsDir, `${label}.${child.pid}.inflight.json`);
+  return settle(child, {
+    run, started, base, _killTree, _platform, _spawnSync, _now,
+    stillRunning: () => inFlightFiles(inFlight, { now: _now, _fs }),
+    onSettle: () => {
+      try {
+        _fs.unlinkSync(inFlight); // the record is for a timeout, not the next run
+      } catch {
+        // Never written, or already cleared by a reporter that exited cleanly.
+      }
+    },
+  });
+}
+
+/** A command run: its argv with no shell, `{base}` replaced by the diff base. */
+async function runCommand({ suite, run, repoRoot, diffBase, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now }) {
+  const cwdAbs = join(repoRoot, run.cwd);
+  const label = labelOf(suite, run);
+  const base = { suite: suite.name, label, files: [] };
+  const started = _now();
+
+  const failedInstall = install({ run, cwdAbs, base, started, _fs, _spawnSync, _platform, _log, _now });
+  if (failedInstall) return failedInstall;
+
+  const argv = run.command.map((arg) => arg.split("{base}").join(diffBase ?? "{base}"));
+  const { file, args, options } = commandSpawn(argv, { platform: _platform });
+  _log(`[test] ${label}: ${argv.join(" ")}`);
+  let child;
+  try {
+    child = _spawn(file, args, {
+      cwd: cwdAbs,
+      env: { ...process.env, ...(run.env || {}) },
+      stdio: "inherit",
+      detached: _platform !== "win32",
+      windowsHide: true,
+      ...options,
+    });
+  } catch (err) {
+    return { ...base, ok: false, status: "fail", reason: err.message, durationMs: _now() - started };
+  }
+  return settle(child, { run, started, base, _killTree, _platform, _spawnSync, _now });
+}
+
+/** True when an argument of any of these suites' command runs names `{base}`:
+ *  the caller must then resolve a base even for a whole-suite run. */
+export function needsBase(suites) {
+  return suites.some((suite) => suite.runs.some((run) => run.command && run.command.some((arg) => arg.includes("{base}"))));
+}
+
+/** Run every suite (all its runs) or only the selected files and commands.
  *
- *  `selected` is a set of `<suite>\0<file>` keys; null means run every suite
- *  whole. A run with nothing selected is skipped in diff mode -- it is not a
- *  failure -- but a whole-suite run whose globs match no file always fails. */
+ *  `selected` is a set of `<suite>\0<file>` keys (`<suite>\0command:<id>` for a
+ *  command run); null means run every suite whole. A run with nothing selected
+ *  is skipped in diff mode -- it is not a failure -- but a whole-suite run whose
+ *  globs match no file always fails. `platformMode` and the host decide which
+ *  runs and files execute here; the rest are named as skipped. */
 export async function runSuites(suites, {
   selected = null,
   fast = false,
   reporter = null,
   config = {},
+  platformMode = "plain",
+  diffBase = null,
   repoRoot,
   resultsDir = null,
   _spawn = spawn,
@@ -206,20 +294,45 @@ export async function runSuites(suites, {
   if (fast && Object.keys(timings).length === 0) {
     _log("[test] --fast: no timings recorded yet; running everything");
   }
+  const host = hostPlatform(_platform);
+  const allows = (platform) => platformAllows(platform, { mode: platformMode, host });
+  const where = platformMode === "windows" ? "--platform windows" : `this ${host ?? _platform} host`;
+  const shared = { repoRoot, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now };
 
   const skipDirs = skipDirsFor(config);
   const results = [];
   for (const suite of suites) {
-    for (const run of suite.runs) {
+    for (const [index, run] of suite.runs.entries()) {
+      const label = labelOf(suite, run);
+      const platform = run.platform ?? "any";
+      if (run.command) {
+        if (selected && !selected.has(`${suite.name}\0${commandKey(run, index)}`)) {
+          _log(`[test] ${label}: skipped (nothing selected)`);
+          continue;
+        }
+        if (!allows(platform)) {
+          if (platform !== "any") _log(`[test] ${label}: skipped on ${where} (platform: ${platform})`);
+          continue;
+        }
+        results.push(await runCommand({ suite, run, diffBase, ...shared }));
+        continue;
+      }
+
       const expanded = expandRun(run, { repoRoot, skipDirs, _readdirSync });
       const chosenFiles = selected
         ? expanded.filter((file) => selected.has(`${suite.name}\0${file}`))
         : expanded;
-      const files = chosenFiles.filter((file) => !skip.has(file));
-      const label = `${suite.name}${run.label ? `[${run.label}]` : ""}`;
-      const fastSkipped = chosenFiles.length - files.length;
+      const hereFiles = chosenFiles.filter((file) => allows(filePlatform(file, run)));
+      const elsewhere = chosenFiles.length - hereFiles.length;
+      if (elsewhere > 0 && platform !== "any" && !allows(platform)) {
+        _log(`[test] ${label}: skipped on ${where} (platform: ${platform})`);
+      } else if (elsewhere > 0 && platformMode === "plain") {
+        _log(`[test] ${label}: skipped ${elsewhere} windows-only file(s) on ${where}`);
+      }
+      const files = hereFiles.filter((file) => !skip.has(file));
+      const fastSkipped = hereFiles.length - files.length;
       if (fastSkipped > 0) {
-        const names = chosenFiles.filter((file) => skip.has(file));
+        const names = hereFiles.filter((file) => skip.has(file));
         _log(`[test] ${label}: --fast skipped ${fastSkipped} measured-slow file(s): ${names.join(", ")}`);
       }
       if (files.length === 0) {
@@ -236,9 +349,12 @@ export async function runSuites(suites, {
           continue;
         }
         if (selected) {
-          _log(`[test] ${label}: skipped (nothing selected)`);
+          if (chosenFiles.length === 0) _log(`[test] ${label}: skipped (nothing selected)`);
           continue;
         }
+        // Only a run whose globs match nothing at all is misconfigured; one
+        // whose files all belong to another platform is simply not run here.
+        if (expanded.length > 0) continue;
         results.push({
           suite: suite.name,
           label,
@@ -250,10 +366,7 @@ export async function runSuites(suites, {
         });
         continue;
       }
-      results.push(await runOne({
-        suite, run, files, repoRoot, resultsDir: resultsDirPath, reporter,
-        _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now,
-      }));
+      results.push(await runOne({ suite, run, files, resultsDir: resultsDirPath, reporter, ...shared }));
       const logPath = join(resultsDirPath, `${label}.log`);
       if (_fs.existsSync(logPath)) _log(`[test] ${label} log: ${logPath}`);
     }

@@ -33,9 +33,13 @@ export const MARKETPLACE = {
   skipDirs: ["sessions"],
 };
 
-/** A config holding `suites` and the marketplace's behaviour. */
+/** A config holding `suites` and the marketplace's behaviour. `repoSuite` is
+ *  kept only when a `repo` suite is present: the marketplace runner treated a
+ *  missing one as none, and validation refuses a name that matches no suite. */
 export function configOf(suites, extra = {}) {
-  return { ...MARKETPLACE, suites, ...extra };
+  const { repoSuite, ...rest } = MARKETPLACE;
+  const hasRepo = suites.some((suite) => suite.name === repoSuite);
+  return { ...rest, ...(hasRepo ? { repoSuite } : {}), suites, ...extra };
 }
 
 export const FIX_GLOB = "plugins/fix/tests/*.test.mjs";
