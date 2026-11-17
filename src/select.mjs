@@ -8,7 +8,9 @@ import { join, posix } from "node:path";
 import { CONFIG_NAME } from "./config.mjs";
 import { SKIP_DIRS, closureOf, makeIndex, skipDirsFor } from "./graph.mjs";
 
-export { SKIP_DIRS };
+/** A test pinned to Windows whatever its run's `platform` says. */
+export const WIN_TEST = /\.win\.test\.mjs$/;
+
 
 // --- Glob expansion --------------------------------------------------------
 
@@ -139,15 +141,15 @@ export function suitePackages(suite, isPackage) {
 }
 
 /** The directories outside every package a suite's runs live in: the glob's
- *  static prefix with its trailing `tests` dropped, so a `bakeoff/.../tests`
- *  run owns its protocol directory. Package globs keep the import-closure rule. */
+ *  static prefix with its trailing `tests` dropped, so a `tools/map/tests` run
+ *  owns `tools/map`. A root `tests/` glob yields `""`, the repository root.
+ *  Package globs keep the import-closure rule. */
 export function suiteHomeDirs(suite, isPackage) {
   const out = new Set();
   for (const run of suite.runs) {
     for (const glob of run.globs || []) {
       const parts = globHome(run, glob).split("/").filter(Boolean);
       if (parts[parts.length - 1] === "tests") parts.pop();
-      if (parts.length === 0) continue;
       const home = parts.join("/");
       if (packageOf(home, isPackage)) continue;
       out.add(home);
@@ -184,17 +186,11 @@ function suiteFiles(suite, repoRoot, skipDirs, _readdirSync) {
 
 // --- Selection -------------------------------------------------------------
 
-/** Which test files a changed set selects, and why.
- *
- *  `why` is `changed: <path>` for a file the graph reached, `fallback: <path>`
- *  for a whole suite a change could not be attributed to, and `windows` for a
- *  `*.win.test.mjs`, which always runs on a Windows machine. A command run is
- *  selected as a unit: by a change its `paths` match, by any change when it has
- *  none, and by a select-all change. `config` supplies `packages`, `fallback`,
- *  `selectAll`, `repoSuite`, `skipDirs` and `configPath`.
- *
- *  `unowned` lists the non-Markdown changes nothing claimed. With a `repoSuite`
- *  that suite takes them instead, so either way none is dropped as docs-only. */
+/** Which test files a changed set selects, and why: `changed: <path>` (the
+ *  graph reached it), `fallback: <path>` (a whole suite, the change could not be
+ *  attributed) or `windows` (a `*.win.test.mjs`, which always runs on Windows).
+ *  `unowned` lists the non-Markdown changes nothing claimed, so none is ever
+ *  dropped as docs-only; a root-homed suite or `repoSuite` takes them instead. */
 export function select({
   suites,
   changed,
@@ -273,8 +269,10 @@ export function select({
     const covering = pkg ? byPackage.get(pkg) || [] : [];
     const owners = [];
     for (const [dir, owned] of byHome) {
-      if (path === dir || path.startsWith(`${dir}/`)) owners.push(...owned);
+      if (dir !== "" && (path === dir || path.startsWith(`${dir}/`))) owners.push(...owned);
     }
+    // A suite homed at the root owns only what nothing more specific owns.
+    if (owners.length === 0 && covering.length === 0 && !claimed) owners.push(...(byHome.get("") || []));
 
     if (covering.length > 0) {
       if (isFallback(path)) {
@@ -312,7 +310,7 @@ export function select({
 
   for (const suite of suites) {
     for (const file of filesFor(suite)) {
-      if (file.endsWith(".win.test.mjs")) add(suite, file, "windows");
+      if (WIN_TEST.test(file)) add(suite, file, "windows");
     }
   }
 

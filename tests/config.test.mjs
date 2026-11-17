@@ -38,7 +38,7 @@ test("A2: an unknown platform is refused, listing the three", () => {
 });
 
 test("A2/A10: install on the repository root is refused", () => {
-  for (const cwd of [undefined, ".", "./"]) {
+  for (const cwd of [undefined, ".", "./", "./.", ""]) {
     const message = refusal({ suites: [run({ cwd, install: ["npm", "ci"] })] });
     assert.match(message, /runs\[0\]\.install: cannot install at the repository root/, String(cwd));
   }
@@ -64,6 +64,7 @@ test("command-only and globs-only fields are refused on the other kind", () => {
 test("repoSuite must name a suite, and a cwd cannot leave the repository", () => {
   assert.match(refusal({ suites: [run()], repoSuite: "nope" }), /^repoSuite: "nope" names no suite\. Use one of: unit/);
   assert.match(refusal({ suites: [run({ cwd: "../elsewhere" })] }), /cwd: must be a path relative to the repository root/);
+  assert.match(refusal({ suites: [run({ cwd: "packages\\api" })] }), /cwd: contains a backslash\. Use forward slashes/);
 });
 
 test("a wsl block needs its distro", () => {

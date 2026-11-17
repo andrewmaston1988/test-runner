@@ -3,7 +3,7 @@
 // the runner uses comes from here -- the package carries no consumer's names.
 
 import { existsSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, posix, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const CONFIG_NAME = "test-runner.config.mjs";
@@ -61,6 +61,10 @@ function checkCwd(cwd, field) {
   if (bad) {
     throw invalid(field, "must be a path relative to the repository root, without ..", 'Write it from the root, e.g. "." or "packages/api"');
   }
+  // Changed paths are posix; a backslash cwd would never match one.
+  if (cwd.includes("\\")) {
+    throw invalid(field, "contains a backslash", 'Use forward slashes, e.g. "packages/api"');
+  }
 }
 
 function checkRun(run, field) {
@@ -104,8 +108,7 @@ function checkRun(run, field) {
     checkStrings(run.install, `${field}.install`, '["npm", "ci"]', { nonEmpty: true });
     // The runner itself came from the root's install; reinstalling there
     // would replace the code that is running.
-    const cwd = run.cwd === undefined ? "." : run.cwd.replace(/[\\/]+$/, "");
-    if (cwd === "." || cwd === "" || cwd === "./") {
+    if (posix.normalize(`./${run.cwd ?? "."}/`) === "./") {
       throw invalid(`${field}.install`, "cannot install at the repository root", "Install the root yourself before running the tests; install applies to a subdirectory cwd, e.g. { cwd: \"packages/api\", install: [\"npm\", \"ci\"] }");
     }
   }
@@ -159,7 +162,8 @@ export function validateConfig(raw) {
   const names = new Set();
   raw.suites.forEach((suite, i) => checkSuite(suite, `suites[${i}]`, names));
   checkStrings(raw.base, "base", '["origin/main", "main"]', { nonEmpty: true });
-  for (const key of ["selectAll", "packages", "fallback", "skipDirs"]) checkStrings(raw[key], key, '["scripts/**"]');
+  const examples = { selectAll: '[".github/workflows/**"]', packages: '["packages/*"]', fallback: '["**/package.json"]', skipDirs: '["fixtures-big"]' };
+  for (const [key, keyExample] of Object.entries(examples)) checkStrings(raw[key], key, keyExample);
   if (raw.repoSuite !== undefined && !(typeof raw.repoSuite === "string" && names.has(raw.repoSuite))) {
     throw invalid("repoSuite", `${JSON.stringify(raw.repoSuite)} names no suite`, `Use one of: ${[...names].join(", ") || "(no suites)"}`);
   }

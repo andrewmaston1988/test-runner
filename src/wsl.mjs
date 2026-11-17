@@ -13,6 +13,8 @@
 
 // Exit codes: the suite's own code, or 2 when WSL mode could not run at all.
 
+import { MIRROR_PACKAGE } from "./graph.mjs";
+
 /** What a missing distro prints: the config's own setup text, then the check. */
 export function setupPointer({ distro, setup = "" }) {
   const lines = setup.trim() ? setup.trim().split("\n").map((line) => `  ${line}`) : [];
@@ -78,8 +80,6 @@ function repoNameOf(commonDir) {
   return parts[parts.length - 1] || "repo";
 }
 
-/** Where the host's copy of this package lives inside the mirror. */
-export const MIRROR_PACKAGE = ".test-runner";
 
 /** `~` and `~/x` against the distro's home; anything else as written. */
 function expandHome(entry, home) {
@@ -87,17 +87,14 @@ function expandHome(entry, home) {
   return entry.startsWith("~/") ? `${home}/${entry.slice(2)}` : entry;
 }
 
-/**
- * Mirror `repoRoot`, copy this package (`packageDir`) into the mirror, and run
- * it there with `runnerArgs`. Resolves to that run's exit code, or 2 when it
- * never ran.
- *
- * `wsl.exe -d <distro> --cd <dir> -- <argv>` starts no login shell, so a
- * user-installed toolchain (`~/.cargo/bin`) is not on PATH: every mirror run
- * gets `wsl.path` prepended, and `wsl.requires` is checked against that PATH
- * before anything syncs.
- */
-export async function runWsl({ repoRoot, packageDir, runnerArgs, wsl: wslConfig, _spawnSync, _fs, log }) {
+/** Mirror `repoRoot`, copy this package into it and run it with `runnerArgs`;
+ *  resolves to that run's exit code, or 2 when it never ran. `wsl.exe --cd`
+ *  starts no login shell, so `~/.cargo/bin` is not on PATH: every mirror run
+ *  gets `wsl.path` prepended, and `wsl.requires` is checked before any sync. */
+export async function runWsl({
+  repoRoot, packageDir, runnerArgs, wsl: wslConfig, _spawnSync, _fs, log,
+  err = (text) => process.stderr.write(text),
+}) {
   const DISTRO = wslConfig.distro;
   const wslExe = (argv, opts = {}) => {
     const r = _spawnSync("wsl.exe", argv, { encoding: "buffer", ...opts });
@@ -120,24 +117,24 @@ export async function runWsl({ repoRoot, packageDir, runnerArgs, wsl: wslConfig,
   const run = (label, argv) => {
     const r = wslExe(argv);
     if (r.status !== 0) {
-      process.stderr.write(`[wsl] ${label} failed (exit ${r.status})\n${r.stderr.trim()}\n`);
+      err(`[wsl] ${label} failed (exit ${r.status})\n${r.stderr.trim()}\n`);
     }
     return r.status;
   };
 
   if (!distroList(wslExe(["-l", "-q"]).stdout).includes(DISTRO)) {
-    process.stderr.write(setupPointer(wslConfig));
+    err(setupPointer(wslConfig));
     return 2;
   }
   if (!_fs.existsSync(repoRoot)) {
-    process.stderr.write(`[wsl] repository root not found: ${repoRoot}\n`);
+    err(`[wsl] repository root not found: ${repoRoot}\n`);
     return 2;
   }
 
   const head = local(["rev-parse", "HEAD"]);
   const common = local(["rev-parse", "--git-common-dir"]);
   if (head.status !== 0 || common.status !== 0) {
-    process.stderr.write(`[wsl] cannot read the repository at ${repoRoot}\n`);
+    err(`[wsl] cannot read the repository at ${repoRoot}\n`);
     return 2;
   }
   const sourceUrl = toWslPath(commonDirOf(common.stdout.trim(), repoRoot));
@@ -147,7 +144,7 @@ export async function runWsl({ repoRoot, packageDir, runnerArgs, wsl: wslConfig,
   const home = text(homeResult.stdout).trim().replace(/\/+$/, "");
   const pathResult = wslExe(inDistro("printenv", "PATH"));
   if (homeResult.status !== 0 || home === "" || pathResult.status !== 0) {
-    process.stderr.write(`[wsl] cannot read the home directory and PATH in ${DISTRO}\n`);
+    err(`[wsl] cannot read the home directory and PATH in ${DISTRO}\n`);
     return 2;
   }
   const extra = (wslConfig.path || []).map((entry) => expandHome(entry, home));
@@ -158,7 +155,7 @@ export async function runWsl({ repoRoot, packageDir, runnerArgs, wsl: wslConfig,
   // nothing from the config is ever parsed by the shell.
   for (const tool of wslConfig.requires || []) {
     if (wslExe(inDistro(...withPath("sh", "-c", 'command -v -- "$1"', "requires", tool))).status !== 0) {
-      process.stderr.write(`[wsl] ${tool} is not on PATH in ${DISTRO}; install it, or add its directory to wsl.path\n`);
+      err(`[wsl] ${tool} is not on PATH in ${DISTRO}; install it, or add its directory to wsl.path\n`);
       return 2;
     }
   }

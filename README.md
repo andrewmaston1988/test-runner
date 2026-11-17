@@ -126,9 +126,9 @@ test-runner --orphans          # list test files no suite runs; exit 1 if any
 The changed set is the branch diff since the merge-base, plus uncommitted and untracked files.
 
 - **Inside a `packages` directory**, a change selects the tests that reach it through relative imports, re-exports, literal dynamic imports, `new URL(..., import.meta.url)` and file-name string literals. A `fallback` file, or a non-Markdown file no test reaches, runs the package's suites whole.
-- **Outside every package**, a change under a suite's own glob root (for example `tools/map/` for `tools/map/tests/*.test.mjs`) runs that suite whole.
+- **Outside every package**, a change under a suite's own glob root (for example `tools/map/` for `tools/map/tests/*.test.mjs`) runs that suite whole. A suite globbing a root `tests/` is homed at the root, so it takes every change nothing more specific owns.
 - **A command run** is selected by a change its `paths` match, by any change when it has no `paths`, and by every select-all change.
-- **Anything else** that is not Markdown goes to `repoSuite`, or is listed as `unowned`. Markdown nothing reaches selects nothing, and the run reports `docs-only`.
+- **Anything else** that is not Markdown goes to `repoSuite`, or is listed as `unowned`. With `--if-selected` an unowned change selects nothing, so give a repository whose suites all live in subdirectories a `repoSuite`. Markdown nothing reaches selects nothing, and the run reports `docs-only`.
 - **`*.win.test.mjs` files** are added to every diff, so they run on every Windows run.
 
 ### Platforms

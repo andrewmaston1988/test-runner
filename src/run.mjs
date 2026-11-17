@@ -8,12 +8,11 @@ import { join, posix } from "node:path";
 
 import { readTimings, slowFiles } from "./fast.mjs";
 import { skipDirsFor } from "./graph.mjs";
-import { commandKey, expandRun } from "./select.mjs";
+import { WIN_TEST, commandKey, expandRun } from "./select.mjs";
 import { commandSpawn } from "./spawn-command.mjs";
 
 // --- Platform --------------------------------------------------------------
 
-const WIN_TEST = /\.win\.test\.mjs$/;
 
 /** The config's name for this host, or null on a host with no pinned runs. */
 export function hostPlatform(platform = process.platform) {

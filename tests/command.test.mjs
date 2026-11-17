@@ -129,14 +129,39 @@ test("A9: a main-only repository resolves its base, and {base} reaches the argv"
 
 test("A12: with no repoSuite, an unowned change exits 0 and is listed", async (t) => {
   const repo = makeRepo(t);
-  write(repo, "tests/a.test.mjs");
+  write(repo, "tools/map/tests/a.test.mjs");
   commitAll(repo, "seed");
   write(repo, "scripts/x.mjs");
   const out = capture();
   const code = await main(["--list"], {
-    cwd: repo, _config: { suites: [{ name: "unit", runs: [{ globs: ["tests/*.test.mjs"] }] }] }, _log: out.log, _err: out.err,
+    cwd: repo, _config: { suites: [{ name: "map", runs: [{ globs: ["tools/map/tests/*.test.mjs"] }] }] }, _log: out.log, _err: out.err,
   });
   assert.equal(code, 0);
   assert.match(out.errors.join("\n"), /unowned: 1 changed file\(s\) no suite owns: scripts\/x\.mjs/);
   assert.doesNotMatch(out.errors.join("\n"), /docs-only/);
+});
+
+test("a suite globbing a root tests/ owns the changes nothing more specific owns", async (t) => {
+  const repo = makeRepo(t);
+  write(repo, "tests/a.test.mjs");
+  write(repo, "tools/map/tests/b.test.mjs");
+  commitAll(repo, "seed");
+  write(repo, "src/x.mjs");
+  write(repo, "tools/map/y.mjs");
+  const out = capture();
+  const code = await main(["--list"], {
+    cwd: repo,
+    _config: { suites: [
+      { name: "unit", runs: [{ globs: ["tests/*.test.mjs"] }] },
+      { name: "map", runs: [{ globs: ["tools/map/tests/*.test.mjs"] }] },
+    ] },
+    _log: out.log,
+    _err: out.err,
+  });
+  assert.equal(code, 0);
+  assert.doesNotMatch(out.errors.join("\n"), /unowned/);
+  assert.deepEqual(out.lines.sort(), [
+    "map tools/map/tests/b.test.mjs fallback: tools/map/y.mjs",
+    "unit tests/a.test.mjs fallback: src/x.mjs",
+  ], "the root suite took src/x.mjs and left tools/map/y.mjs to its own home");
 });

@@ -13,8 +13,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const MAX_AGE_MS = 7 * DAY_MS;
 const TIMINGS_NAME = "timings.json";
 
-/** Timings key. Repo-relative, posix, so the swarm and pipeline suites never
- *  collide over a shared basename and a worktree keys like its main checkout. */
+/** Timings key. Repo-relative, posix, so two suites never collide over a
+ *  shared basename and a worktree keys like its main checkout. */
 export function timingKey(file) {
   return String(file).replace(/\\/g, "/").replace(/^\.\//, "");
 }

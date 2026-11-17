@@ -5,10 +5,13 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, posix } from "node:path";
 
-/** Never walked: a dependency tree, git's own storage, and the package copy
- *  `--wsl` puts in the mirror (`.test-runner`), whose tests are not the
- *  consumer's. A consumer adds its own (`skipDirs`) through `skipDirsFor`. */
-export const SKIP_DIRS = new Set(["node_modules", ".git", ".test-runner"]);
+/** Where `--wsl` puts the host's copy of this package inside the mirror. */
+export const MIRROR_PACKAGE = ".test-runner";
+
+/** Never walked: a dependency tree, git's own storage, and the mirror's package
+ *  copy, whose tests are not the consumer's. A consumer adds its own
+ *  (`skipDirs`) through `skipDirsFor`. */
+export const SKIP_DIRS = new Set(["node_modules", ".git", MIRROR_PACKAGE]);
 
 /** The built-in skips plus the config's. */
 export function skipDirsFor(config) {

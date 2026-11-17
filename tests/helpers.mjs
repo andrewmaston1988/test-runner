@@ -52,7 +52,7 @@ export function git(cwd, ...args) {
 
 export function makeRepo(t, branch = "master") {
   const dir = mkdtempSync(join(tmpdir(), "runner-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   git(dir, "init", "-q", "-b", branch);
   git(dir, "config", "user.email", "runner@example.com");
   git(dir, "config", "user.name", "runner");
