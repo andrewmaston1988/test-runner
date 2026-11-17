@@ -193,11 +193,12 @@ function ifSelectedRepo(t) {
   return repo;
 }
 
+/** On a Windows host, where the fixture's `.win.test.mjs`-only suite runs at all. */
 async function ifSelectedRun(repo, suites, suiteName) {
   const spawn = stubSpawn();
   const out = capture();
   const code = await main(["--suite", suiteName, "--if-selected", "--against", "HEAD"], {
-    cwd: repo, _config: configOf(suites), _spawn: spawn.spawn, _log: out.log, _err: out.err,
+    cwd: repo, _config: configOf(suites), _platform: "win32", _spawn: spawn.spawn, _log: out.log, _err: out.err,
   });
   return { code, out, spawn };
 }
