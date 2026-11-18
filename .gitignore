@@ -1,0 +1,4 @@
+node_modules/
+test-results/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
