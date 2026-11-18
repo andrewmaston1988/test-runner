@@ -1,0 +1,23 @@
+{
+  "name": "test-runner",
+  "version": "0.1.0",
+  "description": "A config-driven test runner: diff-aware suite selection, a Windows/Linux split through a WSL mirror, and one summary with exit codes 0/1/2.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andrewmaston1988/test-runner.git"
+  },
+  "keywords": ["test", "runner", "node-test", "diff", "wsl", "ci"],
+  "type": "module",
+  "bin": {
+    "test-runner": "bin/test-runner.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true
+}
