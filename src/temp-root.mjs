@@ -27,14 +27,9 @@ function emptyRoot(fs, path) {
   }
 }
 
-/** Run `fn(tempEnv)` with a fresh `<tmpdir>/test-runner/<label>-XXXXXX` as the
- *  temp root, spreading `tempEnv` into the child's spawn env.
- *
- *  A `runEnv` naming any of TEMP, TMP or TMPDIR opts the run out: its value
- *  wins and no root is created. Otherwise the root is removed when `fn`
- *  resolves to a passing result (or leaves it empty) and kept, named on one
- *  log line, when the run failed, timed out or threw. A failed removal is a
- *  log line, never a failure: the run's result is the run's own. */
+/** Run `fn(tempEnv)` in a fresh `<tmpdir>/test-runner/<label>-XXXXXX`. A
+ *  `runEnv` temp var opts out. Removed on a pass or when empty, kept and named
+ *  otherwise; a root that cannot be made or removed is a log line, never a failure. */
 export async function withTempRoot({
   label,
   runEnv = {},
@@ -45,8 +40,14 @@ export async function withTempRoot({
   if (TEMP_VARS.some((name) => runEnv[name] !== undefined)) return fn({});
 
   const parent = join(_tmpdir(), "test-runner");
-  _fs.mkdirSync(parent, { recursive: true });
-  const root = _fs.mkdtempSync(join(parent, `${safe(label)}-`));
+  let root;
+  try {
+    _fs.mkdirSync(parent, { recursive: true });
+    root = _fs.mkdtempSync(join(parent, `${safe(label)}-`));
+  } catch (err) {
+    _log(`[test] ${label}: no temp root under ${parent} (${err.code})`);
+    return fn({});
+  }
   const tempEnv = { TEMP: root, TMP: root, TMPDIR: root };
 
   let result;

@@ -217,7 +217,6 @@ export async function runSuites(suites, {
   const shared = {
     repoRoot, colour, slowMs, agent, shims,
     _spawn, _spawnSync, _platform, _killTree, _fs, _log, _writeOut, _writeErr, _now, _heartbeatMs, _pollMs,
-    _tmpdir,
   };
 
   const skipDirs = skipDirsFor(config);

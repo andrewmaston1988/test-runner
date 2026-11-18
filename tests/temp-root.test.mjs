@@ -228,6 +228,26 @@ test("a delete that fails prints one named line and leaves the run's result alon
   assert.deepEqual(recorded, [[root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }]]);
 });
 
+test("a root that cannot be made runs the test without one and says so", async () => {
+  const lines = [];
+  const full = {
+    mkdirSync() {
+      const err = new Error("ENOSPC: no space left on device");
+      err.code = "ENOSPC";
+      throw err;
+    },
+    mkdtempSync: () => assert.fail("minted a root under a parent that failed"),
+  };
+  let seen;
+  const result = await withTempRoot(
+    { label: "probe", _fs: full, _tmpdir: () => "tmp", _log: (line) => lines.push(line) },
+    (tempEnv) => { seen = tempEnv; return { ok: true, status: "pass" }; },
+  );
+  assert.deepEqual(result, { ok: true, status: "pass" }, "an unmade root changed the result");
+  assert.deepEqual(seen, {}, "the run got a temp env with no root behind it");
+  assert.deepEqual(lines, [`[test] probe: no temp root under ${join("tmp", "test-runner")} (ENOSPC)`]);
+});
+
 // --- A5 ---------------------------------------------------------------------
 
 test("the install step runs outside the temp root", async (t) => {

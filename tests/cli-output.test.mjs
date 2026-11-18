@@ -172,6 +172,7 @@ test("a wide run is announced once with the path and the suite", async (t) => {
     _spawn: stubSpawn().spawn,
     _log: graphOut.log,
     _err: graphOut.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(graphCode, 0);
   assert.deepEqual(wideLines(graphOut.errors), [], "a reached change printed a wide-run notice");
@@ -190,7 +191,7 @@ test("the wide-run notice is amber when colour is on", async (t) => {
       _spawn: stubSpawn().spawn,
       _log: out.log,
       _err: out.err,
-    _tmpdir: tempRoot(t),
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return wideLines(out.errors);
@@ -232,7 +233,7 @@ test("twelve undetermined paths print ten notices and a pointer to --list", asyn
   const out = capture();
   const code = await main([], {
     cwd: repo, _config: apiConfig(["packages/api/tests/a.test.mjs"]), _env: {},
-    _spawn: stubSpawn().spawn, _log: out.log, _err: out.err,
+    _spawn: stubSpawn().spawn, _log: out.log, _err: out.err, _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0);
   const lines = wideLines(out.errors);
@@ -256,7 +257,7 @@ test("--if-selected stays silent, --list is uncapped, and agent mode is capped",
     const out = capture();
     const code = await main(argv, {
       cwd: repo, _config: apiConfig(["packages/api/tests/a.test.mjs"]), _env: {},
-      _spawn: stubSpawn().spawn, _log: out.log, _err: out.err,
+      _spawn: stubSpawn().spawn, _log: out.log, _err: out.err, _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0, argv.join(" ") || "default");
     return out;
