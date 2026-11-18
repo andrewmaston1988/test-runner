@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { main } from "../src/cli.mjs";
-import { capture, makeRepo, stubSpawn, write } from "./helpers.mjs";
+import { capture, makeRepo, stubSpawn, tempRoot, write } from "./helpers.mjs";
 
 /** One run of each platform, plus a `.win.test.mjs` inside the `any` run. */
 const CONFIG = {
@@ -29,6 +29,7 @@ async function executed(t, argv, platform) {
   const out = capture();
   const code = await main(argv, {
     cwd: repo, _config: CONFIG, _platform: platform, _spawn: spawned.spawn, _log: out.log, _err: out.err,
+    _tmpdir: tempRoot(t),
   });
   const units = [];
   for (const call of spawned.calls) {

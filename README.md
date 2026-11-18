@@ -14,10 +14,10 @@ There are no runtime dependencies, and it needs Node 22 or newer.
 Install it as a git-pinned devDependency. Nothing is published to the npm registry; to upgrade, bump the tag.
 
 ```json
-{ "devDependencies": { "test-runner": "github:andrewmaston1988/test-runner#v0.1.1" } }
+{ "devDependencies": { "test-runner": "github:andrewmaston1988/test-runner#v0.1.2" } }
 ```
 
-Run it with `npx test-runner`, or from a script: `"test": "test-runner"`.
+Run it with `npx --no-install test-runner`, or from a script: `"test": "test-runner"`. Use `--no-install`: a bare `npx test-runner` with no `node_modules` fetches a different package of that name from the registry instead of the one this file adds.
 
 ## Config
 
@@ -97,6 +97,8 @@ test-runner --orphans          # list test files no suite runs; exit 1 if any
 **`--fast` and command runs.** A run with `format` records every passing test's time under `--fast`, from the producer's own output. A run also setting `fastSkip: true` additionally drops the long-running tests measured over 30 s in the last 7 days: a `junit` run appends one `--deselect <nodeid>` pair per test — with pytest that needs `-o junit_family=legacy`, see [`{report}`](#base-and-report) below — while a `tap`, `libtest` or shim run has no skip convention, so it runs whole and the runner says so. (Node's `--test-skip-pattern`, the honest fix for TAP, is left for a later release.) A run only records times when it passed; deselects replay only while the recorded tree stamps — the commit hash and dirty state — are still this tree's.
 
 **Exit codes.** 0 means everything that ran passed, including an empty selection. 1 means a run failed or timed out, a whole-suite run matched no file, or `--orphans` found one. 2 means a request or prerequisite failed: an unknown flag or suite, an invalid config, an unresolvable base, or a missing distro or tool.
+
+**Temp roots.** Every run starts with `TEMP`, `TMP` and `TMPDIR` pointing at one fresh `<tmpdir>/test-runner/<label>-XXXXXX` dir, so the temp dirs a test leaves behind collect under that one parent instead of scattering through the OS temp dir. A passing run's root is removed. A run that fails or times out keeps it and prints `[test] <label>: temp root kept at <path>` — a failing test's evidence is usually in there — unless the root is empty, which is removed silently. If the root cannot be made (an unwritable or full temp dir), the run goes ahead without one and says so. The install step runs outside the root: npm's cache staging is not test litter. A `runs[].env` naming `TEMP`, `TMP` or `TMPDIR` opts that run out — its value wins and no root is made. `envFile` is not an opt-out: node's `--env-file` never overrides a variable that is already set, so a temp var in the file loses to the root; put it in `runs[].env` instead.
 
 ### What a diff selects
 

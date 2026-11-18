@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { runSuites } from "../src/run.mjs";
-import { capture, commandSuite, makeRepo, stubSpawn } from "./helpers.mjs";
+import { capture, commandSuite, makeRepo, stubSpawn, tempRoot } from "./helpers.mjs";
 
 const TAP_MIX = [
   "TAP version 13",
@@ -45,7 +45,7 @@ test("a format run pipes both streams, writes them to the log, and tees only std
   const out = capture();
   let tee = "";
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log,
     _writeErr: (text) => { tee += text; },
   });
   assert.equal(result.status, "pass", JSON.stringify(result));
@@ -62,7 +62,7 @@ test("without format the command inherits stdio and writes no log", async (t) =>
   const spawn = stubSpawn({ out: "plain output\n" });
   const out = capture();
   await runSuites([commandSuite(["cargo", "test"])], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
   });
   assert.equal(spawn.calls[0].opts.stdio, "inherit");
   assert.equal(existsSync(join(repo, "test-results", "cmd.log")), false, "a plain run wrote a log");
@@ -73,7 +73,7 @@ test("a timeout-killed format run still writes both streams to the log", async (
   const repo = makeRepo(t);
   const spawn = stubSpawn({ never: true, out: "TAP version 13\nok 1 - a\n", errOut: "boom\n" });
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "tap", timeoutMs: 50 })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
     _killTree: () => {},
   });
   assert.equal(result.status, "timeout", JSON.stringify(result));
@@ -86,7 +86,7 @@ test("rows, the slow list and the totals line print for the parsed events", asyn
   const spawn = stubSpawn({ out: TAP_MIX });
   const out = capture();
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
     slowMs: 300,
   });
   const text = out.lines.join("\n");
@@ -120,7 +120,7 @@ test("un-timed libtest events print without a time and name no slow test", async
   ].join("\n") });
   const out = capture();
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "libtest" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, slowMs: 300,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, slowMs: 300,
   });
   assert.deepEqual(out.lines.slice(1, 4), ["✓ calc::adds", "✗ calc::f", "↓ skipped::x"]);
   assert.ok(out.lines.join("\n").includes("totals: 3 tests, 1 passed, 1 failed, 1 skipped, 0 todo"), out.lines.join("\n"));
@@ -140,7 +140,7 @@ test("agent mode keeps failing rows with detail and the bounded stderr tail", as
   const out = capture();
   let tail = "";
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log,
     _writeErr: (text) => { tail += text; },
     agent: true,
   });
@@ -156,7 +156,7 @@ test("agent mode prints no slowest list and no totals line", async (t) => {
   const spawn = stubSpawn({ code: 1, out: TAP_MIX });
   const out = capture();
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
     agent: true, slowMs: 300,
   });
   const text = out.lines.join("\n");
@@ -171,7 +171,7 @@ test("default mode tees every stderr chunk as it arrives", async (t) => {
   const out = capture();
   let tee = "";
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log,
     _writeErr: (text) => { tee += text; },
   });
   assert.equal(tee, `${TWENTY_FIVE}\n`, "a chunk was lost or reshaped by the tee");
@@ -184,7 +184,7 @@ test("unparseable output with exit 0 passes, with exactly one notice naming the 
   const out = capture();
   let notes = "";
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log,
     _writeErr: (text) => { notes += text; },
   });
   assert.equal(result.ok, true, "the parse contributed to the verdict");
@@ -201,7 +201,7 @@ test("all-pass TAP with exit 3 still fails the run and still prints rows", async
   const spawn = stubSpawn({ code: 3, out: "TAP version 13\nok 1 - a\n" });
   const out = capture();
   const [result] = await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
   });
   assert.equal(result.status, "fail", JSON.stringify(result));
   assert.equal(result.reason, "exit 3");
@@ -216,7 +216,7 @@ test("the default heartbeat prints nothing at 59_999ms and one line at 60_000ms,
   const spawn = stubSpawn({ never: true });
   const beats = [];
   const running = runSuites([commandSuite(["cargo", "test"])], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
     _writeOut: (text) => beats.push(text),
     _now: () => now,
     _pollMs: 10,
@@ -242,7 +242,7 @@ test("a smaller interval prints one line per interval from the fake clock", asyn
   const spawn = stubSpawn({ never: true });
   const beats = [];
   const running = runSuites([commandSuite(["cargo", "test"])], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
     _writeOut: (text) => beats.push(text),
     _now: () => now,
     _heartbeatMs: 20,

@@ -7,7 +7,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { runSuites } from "../src/run.mjs";
-import { capture, commandSuite, makeRepo, stubSpawn, write } from "./helpers.mjs";
+import { capture, commandSuite, makeRepo, stubSpawn, tempRoot, write } from "./helpers.mjs";
 
 // --- {report}: the junit artifact token (R10) ---------------------------------
 
@@ -28,7 +28,7 @@ test("{report} substitutes under the results dir, unlinks stale, and parses the 
   };
   const out = capture();
   await runSuites([commandSuite(["pytest", "--junitxml={report}"], { format: "junit" })], {
-    repoRoot: repo, _spawn: spawnFn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawnFn, _log: out.log, _writeErr: () => {},
   });
   assert.equal(staleAtSpawn, false, "the stale report reached the spawn unlinked");
   assert.deepEqual(spawn.calls[0].args, ["--junitxml=" + join(repo, "test-results", "cmd.report.xml")]);
@@ -42,7 +42,7 @@ test("a run whose report never appears parses stdout as the fallback", async (t)
   const spawn = stubSpawn({ code: 0, out: '<testsuite name="stdout"><testcase classname="t" name="stdout-x" time="0.02"/></testsuite>' });
   const out = capture();
   await runSuites([commandSuite(["pytest", "--junitxml={report}"], { format: "junit" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
   });
   assert.equal(existsSync(join(repo, "test-results", "cmd.report.xml")), false);
   assert.match(out.lines.join("\n"), /✓ t::stdout-x  20ms/, "stdout never got parsed as the fallback");
@@ -60,7 +60,7 @@ test("the shim parse call carries the exact captured shape, report null without 
   };
   const out = capture();
   await runSuites([commandSuite(["go", "test"], { format: "shims/go.mjs" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, shims: { "shims/go.mjs": parse },
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, shims: { "shims/go.mjs": parse },
   });
   assert.deepEqual(calls, [{
     stdout: "go test chatter\n",
@@ -86,7 +86,7 @@ test("with {report} the parse call carries the read file as report", async (t) =
   };
   const out = capture();
   await runSuites([commandSuite(["go", "test", "--out={report}"], { format: "shims/go.mjs" })], {
-    repoRoot: repo, _spawn: spawnFn, _log: out.log, shims: { "shims/go.mjs": parse },
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawnFn, _log: out.log, shims: { "shims/go.mjs": parse },
   });
   assert.deepEqual(calls[0].report, {
     path: join(repo, "test-results", "cmd.report.xml"),
@@ -107,7 +107,7 @@ test("shim events render as rows — pass, fail, skip and todo", async (t) => {
   });
   const out = capture();
   await runSuites([commandSuite(["go", "test"], { format: "shims/go.mjs" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, shims: { "shims/go.mjs": parse },
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, shims: { "shims/go.mjs": parse },
   });
   const rows = out.lines.join("\n");
   assert.match(rows, /✓ go passes  7ms/);
@@ -125,7 +125,7 @@ test("a shim that throws prints the decision-8 notice and the verdict stays the 
   const out = capture();
   let err = "";
   const [result] = await runSuites([commandSuite(["go", "test"], { format: "shims/go.mjs" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: (text) => { err += text; },
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: (text) => { err += text; },
     shims: { "shims/go.mjs": parse },
   });
   assert.equal(result.status, "fail", "a throwing shim improved the verdict");

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { main } from "../src/cli.mjs";
-import { capture, cliSpawnSync, commitAll, configOf, makeRepo, stubSpawn, write } from "./helpers.mjs";
+import { capture, cliSpawnSync, commitAll, configOf, makeRepo, stubSpawn, tempRoot, write } from "./helpers.mjs";
 
 // --- cargo: the degraded-metadata notice and --if-selected (cargo R12, R16) ---
 
@@ -67,7 +67,7 @@ test("--if-selected counts a diff whose entries are only crate keys as touched",
   const out = capture();
   const code = await main(["--suite", "rust", "--if-selected", "--against", "HEAD"], {
     cwd: repo, _config: cargoConfig(true), _platform: "win32", _spawn: spawn.spawn,
-    _spawnSync: stub.spawnSync, _log: out.log, _err: out.err,
+    _spawnSync: stub.spawnSync, _log: out.log, _err: out.err, _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0, out.errors.join("\n"));
   assert.ok(spawn.calls.length > 0, "a crate-key diff did not count as touched");

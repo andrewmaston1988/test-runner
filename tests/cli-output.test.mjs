@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 
 import { main } from "../src/cli.mjs";
 import {
-  FIX_GLOB, capture, commitAll, configOf, graphFixture, pathsFixture, stubSpawn, suiteOf, write,
+  FIX_GLOB, capture, commitAll, configOf, graphFixture, pathsFixture, stubSpawn, suiteOf, tempRoot, write,
 } from "./helpers.mjs";
 
 // --- colour and the slow threshold -----------------------------------------
@@ -23,6 +23,7 @@ test("the parent resolves colour once, agent mode included", async (t) => {
       _spawn: spawn.spawn,
       _log: () => {},
       _err: () => {},
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return spawn.calls[0].opts.env.TEST_COLOUR;
@@ -48,6 +49,7 @@ test("--reporter=agent never colours unless the user set FORCE_COLOR", async (t)
       _spawn: spawn.spawn,
       _log: () => {},
       _err: () => {},
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return spawn.calls[0].opts.env.TEST_COLOUR;
@@ -87,6 +89,7 @@ test("TEST_COLOUR overrides the TTY answer for command rows", async (t) => {
       _spawn: spawn.spawn,
       _log: () => {},
       _err: () => {},
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return spawn.calls[0].opts.env.TEST_COLOUR;
@@ -106,6 +109,7 @@ test("--slow-ms beats the config's slowMs, which beats 300", async (t) => {
       _spawn: spawn.spawn,
       _log: () => {},
       _err: () => {},
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return spawn.calls[0].opts.env.SLOW_MS;
@@ -151,6 +155,7 @@ test("a wide run is announced once with the path and the suite", async (t) => {
     _spawn: stubSpawn().spawn,
     _log: out.log,
     _err: out.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0);
   assert.deepEqual(wideLines(out.errors), [wideText("packages/api/src/n.mjs")]);
@@ -167,6 +172,7 @@ test("a wide run is announced once with the path and the suite", async (t) => {
     _spawn: stubSpawn().spawn,
     _log: graphOut.log,
     _err: graphOut.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(graphCode, 0);
   assert.deepEqual(wideLines(graphOut.errors), [], "a reached change printed a wide-run notice");
@@ -185,6 +191,7 @@ test("the wide-run notice is amber when colour is on", async (t) => {
       _spawn: stubSpawn().spawn,
       _log: out.log,
       _err: out.err,
+      _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0);
     return wideLines(out.errors);
@@ -214,6 +221,7 @@ test("a deliberate whole-repo change prints no wide-run notice", async (t) => {
     _spawn: spawn.spawn,
     _log: out.log,
     _err: out.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0);
   assert.deepEqual(wideLines(out.errors), [], "a config, lockfile or selectAll change was called undetermined");
@@ -225,7 +233,7 @@ test("twelve undetermined paths print ten notices and a pointer to --list", asyn
   const out = capture();
   const code = await main([], {
     cwd: repo, _config: apiConfig(["packages/api/tests/a.test.mjs"]), _env: {},
-    _spawn: stubSpawn().spawn, _log: out.log, _err: out.err,
+    _spawn: stubSpawn().spawn, _log: out.log, _err: out.err, _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0);
   const lines = wideLines(out.errors);
@@ -249,7 +257,7 @@ test("--if-selected stays silent, --list is uncapped, and agent mode is capped",
     const out = capture();
     const code = await main(argv, {
       cwd: repo, _config: apiConfig(["packages/api/tests/a.test.mjs"]), _env: {},
-      _spawn: stubSpawn().spawn, _log: out.log, _err: out.err,
+      _spawn: stubSpawn().spawn, _log: out.log, _err: out.err, _tmpdir: tempRoot(t),
     });
     assert.equal(code, 0, argv.join(" ") || "default");
     return out;

@@ -14,6 +14,7 @@ import {
   makeRepo,
   stubSpawn,
   suiteOf,
+  tempRoot,
   write,
 } from "./helpers.mjs";
 
@@ -84,6 +85,7 @@ test("a failing run exits 1 and the summary names it; all green exits 0", async 
       _spawn: spawn.spawn,
       _log: (line) => lines.push(line),
       _err: () => {},
+      _tmpdir: tempRoot(t),
     });
 
   const failing = stubSpawn({ code: 1 });
@@ -227,6 +229,7 @@ test("a shim parse renders its rows through the readConfig -> main -> runSuites 
   const code = await main(["--all"], {
     cwd: repo, _config: shimConfig(), _import: async () => ({ default: parse }), _env: {},
     _spawn: spawn.spawn, _log: out.log, _err: out.err, _writeErr: () => {},
+    _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0);
   const lines = out.lines.join("\n");
