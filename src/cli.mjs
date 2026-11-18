@@ -4,6 +4,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import * as nodeFs from "node:fs";
+import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -180,6 +181,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     _err = (line) => process.stderr.write(`${line}\n`),
     _writeOut = (text) => process.stdout.write(text),
     _writeErr = (text) => process.stderr.write(text),
+    _tmpdir = tmpdir,
   } = options;
 
   const parsed = parseArgs(argv);
@@ -386,6 +388,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     _writeOut,
     _writeErr,
     _now,
+    _tmpdir,
   });
   if (results.length === 0) {
     _log("[test] nothing to run");

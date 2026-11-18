@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { installIfNeeded } from "../src/execute.mjs";
 import { runSuites } from "../src/run.mjs";
 import { commandSpawn } from "../src/spawn-command.mjs";
-import { FIX_GLOB, capture, graphFixture, makeRepo, stubSpawn, suiteOf, write } from "./helpers.mjs";
+import { FIX_GLOB, capture, graphFixture, makeRepo, stubSpawn, suiteOf, tempRoot, write } from "./helpers.mjs";
 
 // --- install ---------------------------------------------------------------
 
@@ -132,7 +132,9 @@ test("a runner run spawns its own argv with the selected files and none of node'
         env: { PYTHONPATH: "src" }, timeoutMs: 600000,
       }],
     };
-    await runSuites([suite], { repoRoot: repo, colour: true, slowMs: 500, _platform: "linux", _spawn: spawn.spawn });
+    await runSuites([suite], {
+      repoRoot: repo, colour: true, slowMs: 500, _platform: "linux", _spawn: spawn.spawn, _tmpdir: tempRoot(t),
+    });
     const call = spawn.calls[0];
     assert.equal(call.cmd, "python");
     assert.deepEqual(call.args.slice(0, 3), [
@@ -161,7 +163,7 @@ test("a node run still uses --test and its own colour and slow values", async (t
   try {
     const spawn = stubSpawn();
     await runSuites([suiteOf("fix", [FIX_GLOB])], {
-      repoRoot: repo, colour: false, slowMs: 250, _spawn: spawn.spawn,
+      repoRoot: repo, colour: false, slowMs: 250, _spawn: spawn.spawn, _tmpdir: tempRoot(t),
     });
     const call = spawn.calls[0];
     assert.equal(call.args[0], "--test");
@@ -185,7 +187,9 @@ test("an argv past cmd.exe's 8,191 runs the bare runner", async (t) => {
   assert.ok([...runner, ...overFiles].join(" ").length > 8000, "the fixture did not cross 8,191");
   const bare = stubSpawn();
   const logs = capture();
-  await runSuites([runnerSuite(runner)], { repoRoot: over, _platform: "win32", _spawn: bare.spawn, _log: logs.log });
+  await runSuites([runnerSuite(runner)], {
+    repoRoot: over, _platform: "win32", _spawn: bare.spawn, _log: logs.log, _tmpdir: tempRoot(t),
+  });
   const bareArgs = bare.calls[0].args.join(" ");
   assert.doesNotMatch(bareArgs, /test_\d+\.py/, `a file list was handed to cmd.exe: ${bareArgs}`);
   assert.match(logs.lines.join("\n"), /need more than the 8000 argv characters .*running it with no file list/,
@@ -195,7 +199,9 @@ test("an argv past cmd.exe's 8,191 runs the bare runner", async (t) => {
   const underFiles = fillArgv(under, runner, 6500);
   assert.ok([...runner, ...underFiles].join(" ").length < 8000, "the fixture already crossed 8,191");
   const kept = stubSpawn();
-  await runSuites([runnerSuite(runner)], { repoRoot: under, _platform: "win32", _spawn: kept.spawn });
+  await runSuites([runnerSuite(runner)], {
+    repoRoot: under, _platform: "win32", _spawn: kept.spawn, _tmpdir: tempRoot(t),
+  });
   assert.match(kept.calls[0].args.join(" "), /test_0\.py/, "the file list was dropped under the limit");
 });
 
@@ -206,14 +212,18 @@ test("an argv past CreateProcess's 32,767 runs the bare runner", async (t) => {
   const overFiles = fillArgv(over, runner, 32500);
   assert.ok([...runner, ...overFiles].join(" ").length > 32000, "the fixture did not cross 32,767");
   const bare = stubSpawn();
-  await runSuites([runnerSuite(runner)], { repoRoot: over, _platform: "win32", _spawn: bare.spawn });
+  await runSuites([runnerSuite(runner)], {
+    repoRoot: over, _platform: "win32", _spawn: bare.spawn, _tmpdir: tempRoot(t),
+  });
   assert.doesNotMatch(bare.calls[0].args.join(" "), /test_\d+\.py/, "the file list was spawned over the limit");
 
   const under = graphFixture(t);
   const underFiles = fillArgv(under, runner, 29500);
   assert.ok([...runner, ...underFiles].join(" ").length < 32000, "the fixture already crossed 32,767");
   const kept = stubSpawn();
-  await runSuites([runnerSuite(runner)], { repoRoot: under, _platform: "win32", _spawn: kept.spawn });
+  await runSuites([runnerSuite(runner)], {
+    repoRoot: under, _platform: "win32", _spawn: kept.spawn, _tmpdir: tempRoot(t),
+  });
   assert.match(kept.calls[0].args.join(" "), /test_0\.py/, "the file list was dropped under the limit");
 });
 
@@ -224,11 +234,12 @@ const cargoRun = (extra = {}) => ({
 });
 
 /** runSuites over the cargo suite with a selected set, capturing the spawn and log. */
-async function pickedSpawn(repo, keys) {
+async function pickedSpawn(t, repo, keys) {
   const spawn = stubSpawn();
   const out = capture();
   await runSuites([{ name: "rust", runs: [cargoRun()] }], {
     repoRoot: repo, selected: keys, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    _tmpdir: tempRoot(t),
   });
   return { spawn, lines: out.lines };
 }
@@ -237,18 +248,18 @@ test("a run selected only by crate keys builds the -p argv, and the whole key be
   const repo = makeRepo(t);
 
   // Nothing of this suite selected — no whole key, no crate key — skips the run.
-  const none = await pickedSpawn(repo, new Set(["unit\0tests/a.test.mjs"]));
+  const none = await pickedSpawn(t, repo, new Set(["unit\0tests/a.test.mjs"]));
   assert.deepEqual(none.spawn.calls, [], "an unselected cargo run was spawned");
   assert.match(none.lines.join("\n"), /^\[test\] rust\[test\]: skipped \(nothing selected\)$/m);
 
   // Crate keys without the whole key build the sorted -p argv.
-  const crates = await pickedSpawn(repo, new Set([
+  const crates = await pickedSpawn(t, repo, new Set([
     "rust\0command:test#gamma", "rust\0command:test#alpha",
   ]));
   assert.deepEqual(crates.spawn.calls[0].args, ["test", "-p", "alpha", "-p", "gamma"]);
   assert.equal(crates.spawn.calls.length, 1, "the run spawned more than once");
 
   // The whole key present runs the declared argv; crate keys ride along ignored.
-  const whole = await pickedSpawn(repo, new Set(["rust\0command:test", "rust\0command:test#alpha"]));
+  const whole = await pickedSpawn(t, repo, new Set(["rust\0command:test", "rust\0command:test#alpha"]));
   assert.deepEqual(whole.spawn.calls[0].args, ["test"]);
 });

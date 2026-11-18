@@ -7,7 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { runSuites } from "../src/run.mjs";
-import { capture, commandSuite, commitAll, git, makeRepo, stubSpawn, write } from "./helpers.mjs";
+import { capture, commandSuite, commitAll, git, makeRepo, stubSpawn, tempRoot, write } from "./helpers.mjs";
 
 // --- --fast skip args and command timings (R11/R12) ---------------------------
 
@@ -44,7 +44,7 @@ test("a junit --fast fastSkip run deselects exactly the long-running tests", asy
   const spawn = stubSpawn({ code: 0 });
   const out = capture();
   await runSuites([commandSuite(["pytest"], { format: "junit", fastSkip: true })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, _now: () => NOW,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, _now: () => NOW,
     fast: true,
   });
   // The stub sees the args past the resolved command, so the deselects arrive
@@ -61,7 +61,7 @@ test("fastSkip is default off, and tap and libtest run whole with a warning", as
     const spawn = stubSpawn({ code: 0 });
     const out = capture();
     await runSuites([commandSuite(["pytest"], { format, ...(format === "tap" || format === "libtest" ? { fastSkip: true } : {}) })], {
-      repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, _now: () => NOW,
+      repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {}, _now: () => NOW,
       fast: true,
     });
     assert.deepEqual(spawn.calls[0].args, [], `${format} grew skip args`);
@@ -81,7 +81,7 @@ test("a junit run with no recorded timings runs whole", async (t) => {
   const spawn = stubSpawn({ code: 0 });
   const out = capture();
   await runSuites([commandSuite(["pytest"], { format: "junit", fastSkip: true })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
   });
   assert.deepEqual(spawn.calls[0].args, []);
   assert.doesNotMatch(out.lines.join("\n"), /measured-slow test\(s\)/);
@@ -94,7 +94,7 @@ test("a passing --fast run records its timed tests stamped with the tree", async
   const out = capture();
   const testStart = Date.now();
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: out.log, _writeErr: () => {},
     fast: true,
   });
   const recorded = JSON.parse(readFileSync(join(repo, "test-results", "timings.json"), "utf8"))["command:0"];
@@ -112,7 +112,7 @@ test("the recording merges names absent from this run's events", async (t) => {
   }, null, 2)}\n`);
   const spawn = stubSpawn({ code: 0, out: "TAP version 13\nok 1 - adds\n  ---\n  duration_ms: 120\n  ...\n1..1\n" });
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
     fast: true,
   });
   const tests = JSON.parse(readFileSync(join(repo, "test-results", "timings.json"), "utf8"))["command:0"].tests;
@@ -127,7 +127,7 @@ test("a junit run without a file attribute records no nodeid, so --fast deselect
   const repo = await stampedRepo(t);
   const xml = '<testsuite><testcase classname="tests.test_x" name="slow" time="40"/></testsuite>';
   await runSuites([commandSuite(["pytest"], { format: "junit" })], {
-    repoRoot: repo, _spawn: stubSpawn({ code: 0, out: xml }).spawn,
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: stubSpawn({ code: 0, out: xml }).spawn,
     _log: () => {}, _writeErr: () => {}, fast: true,
   });
   const tests = JSON.parse(readFileSync(join(repo, "test-results", "timings.json"), "utf8"))["command:0"].tests;
@@ -138,7 +138,7 @@ test("a failing run records nothing", async (t) => {
   const repo = await stampedRepo(t);
   const spawn = stubSpawn({ code: 1, out: "TAP version 13\nok 1 - adds\n  ---\n  duration_ms: 120\n  ...\n1..1\n" });
   await runSuites([commandSuite(["cargo", "test"], { format: "tap" })], {
-    repoRoot: repo, _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
+    repoRoot: repo, _tmpdir: tempRoot(t), _spawn: spawn.spawn, _log: () => {}, _writeErr: () => {},
     fast: true,
   });
   assert.equal(existsSync(join(repo, "test-results", "timings.json")), false, "a failing run wrote a record");

@@ -11,7 +11,7 @@ import { main } from "../src/cli.mjs";
 import { runCommand } from "../src/command.mjs";
 import { runSuites } from "../src/run.mjs";
 import { select } from "../src/select.mjs";
-import { capture, commandSuite, commitAll, git, makeRepo, stubSpawn, write } from "./helpers.mjs";
+import { capture, commandSuite, commitAll, git, makeRepo, stubSpawn, tempRoot, write } from "./helpers.mjs";
 
 const PRINT_ARGS = "console.log(JSON.stringify(process.argv.slice(1)))";
 
@@ -42,7 +42,7 @@ test("a command past its timeout is reported and its process is gone", async (t)
   const repo = makeRepo(t);
   const { spawn: spawnFn, out } = capturingSpawn();
   const [result] = await runSuites([commandSuite([process.execPath, "-e", "setTimeout(() => {}, 1e6)"], { timeoutMs: 500 })], {
-    repoRoot: repo, _spawn: spawnFn,
+    repoRoot: repo, _spawn: spawnFn, _tmpdir: tempRoot(t),
   });
   assert.equal(result.status, "timeout", JSON.stringify(result));
   const { pid } = out.children[0];
@@ -54,7 +54,7 @@ test("an argument with && reaches the child as one argument and runs nothing", a
   const repo = makeRepo(t);
   const { spawn: spawnFn, out } = capturingSpawn();
   const [result] = await runSuites([commandSuite([process.execPath, "-e", PRINT_ARGS, "a && echo SECOND"])], {
-    repoRoot: repo, _spawn: spawnFn,
+    repoRoot: repo, _spawn: spawnFn, _tmpdir: tempRoot(t),
   });
   assert.equal(result.status, "pass", JSON.stringify(result));
   assert.deepEqual(JSON.parse(out.text.trim()), ["a && echo SECOND"]);
@@ -120,6 +120,7 @@ test("a main-only repository resolves its base, and {base} reaches the argv", as
     _spawn: spawnFn,
     _log: log.log,
     _err: log.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(code, 0, log.errors.join("\n"));
   assert.equal(out.text.trim(), head);
@@ -197,7 +198,7 @@ test("selected crates insert the sorted -p list before --, with --workspace stri
     const run = { cwd: ".", command, timeoutMs: 60000 };
     await runCommand({
       suite: { name: "cmd", runs: [run] }, run, repoRoot: repo, resultsDir: join(repo, "test-results"),
-      crates: ["gamma", "alpha", "beta"],
+      crates: ["gamma", "alpha", "beta"], tempEnv: {},
       _spawn: spawn.spawn, _log: () => {}, _writeOut: () => {}, _writeErr: () => {},
       _now: Date.now, _platform: "win32",
     });

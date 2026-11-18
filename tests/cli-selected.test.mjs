@@ -19,6 +19,7 @@ import {
   pythonFixture,
   stubSpawn,
   suiteOf,
+  tempRoot,
   write,
 } from "./helpers.mjs";
 
@@ -34,11 +35,12 @@ function ifSelectedRepo(t) {
 }
 
 /** On a Windows host, where the fixture's `.win.test.mjs`-only suite runs at all. */
-async function ifSelectedRun(repo, suites, suiteName, extra = {}) {
+async function ifSelectedRun(t, repo, suites, suiteName, extra = {}) {
   const spawn = stubSpawn();
   const out = capture();
   const code = await main(["--suite", suiteName, "--if-selected", "--against", "HEAD"], {
     cwd: repo, _config: configOf(suites, extra), _platform: "win32", _spawn: spawn.spawn, _log: out.log, _err: out.err,
+    _tmpdir: tempRoot(t),
   });
   return { code, out, spawn };
 }
@@ -51,7 +53,7 @@ test("--if-selected runs a selected suite whole and skips an unselected one", as
   ];
   write(repo, "plugins/fix/src/a.mjs", "export const a = 2;\n");
 
-  const selectedRun = await ifSelectedRun(repo, suites, "fix");
+  const selectedRun = await ifSelectedRun(t, repo, suites, "fix");
   assert.equal(selectedRun.code, 0);
   assert.ok(selectedRun.spawn.calls.length > 0, "a selected suite did not run");
   assert.ok(
@@ -59,7 +61,7 @@ test("--if-selected runs a selected suite whole and skips an unselected one", as
     "the suite did not run whole",
   );
 
-  const skipped = await ifSelectedRun(repo, suites, "elsewhere");
+  const skipped = await ifSelectedRun(t, repo, suites, "elsewhere");
   assert.equal(skipped.code, 0);
   assert.equal(skipped.spawn.calls.length, 0, "an unselected suite spawned node --test");
   assert.match(skipped.out.lines.join("\n"), /^\[test\] elsewhere: not selected by this diff$/m);
@@ -73,7 +75,7 @@ test("a runner, registry or workflow change runs every suite", async (t) => {
   ];
   for (const path of ["scripts/test-lib/select.mjs", "scripts/test-suites.mjs", ".github/workflows/test.yml"]) {
     write(repo, path);
-    const { code, spawn } = await ifSelectedRun(repo, suites, "elsewhere");
+    const { code, spawn } = await ifSelectedRun(t, repo, suites, "elsewhere");
     assert.equal(code, 0, path);
     assert.ok(spawn.calls.length > 0, `${path} did not run the suite`);
     rmSync(join(repo, path), { force: true });
@@ -84,7 +86,7 @@ test("a changed *.win.test.mjs selects its suite", async (t) => {
   const repo = ifSelectedRepo(t);
   const suites = [suiteOf("fix", [FIX_GLOB]), suiteOf("elsewhere", ["plugins/elsewhere/tests/*.test.mjs"])];
   write(repo, "plugins/fix/tests/extra.win.test.mjs");
-  const { code, spawn } = await ifSelectedRun(repo, suites, "fix");
+  const { code, spawn } = await ifSelectedRun(t, repo, suites, "fix");
   assert.equal(code, 0);
   assert.ok(spawn.calls.length > 0, "a changed win test did not select its suite");
 });
@@ -144,7 +146,7 @@ test("--if-selected runs a suite a scanner selects, and a .md-only diff selects 
   const extra = { packages: ["packages/*"] };
 
   write(repo, "packages/api/src/n.mjs", "export const n = 2;\n");
-  const selected = await ifSelectedRun(repo, suites, "api", extra);
+  const selected = await ifSelectedRun(t, repo, suites, "api", extra);
   assert.equal(selected.code, 0, selected.out.errors.join("\n"));
   assert.ok(selected.spawn.calls.length > 0, "a scanner-selected diff did not run the suite");
   assert.ok(selected.spawn.calls.some((call) => call.args.includes("packages/api/tests/plain.test.mjs")),
@@ -152,7 +154,7 @@ test("--if-selected runs a suite a scanner selects, and a .md-only diff selects 
 
   commitAll(repo, "scanner change");
   write(repo, "packages/api/notes.md", "more notes\n");
-  const docs = await ifSelectedRun(repo, suites, "api", extra);
+  const docs = await ifSelectedRun(t, repo, suites, "api", extra);
   assert.equal(docs.code, 0);
   assert.equal(docs.spawn.calls.length, 0, "a .md-only diff ran a suite");
   assert.match(docs.out.lines.join("\n"), /^\[test\] api: not selected by this diff$/m);
@@ -191,6 +193,7 @@ test("--list prints the Python reasons, and --if-selected still runs the suite w
     _spawn: run.spawn,
     _log: runOut.log,
     _err: runOut.err,
+    _tmpdir: tempRoot(t),
   });
   assert.equal(runCode, 0);
   assert.ok(run.calls.length > 0, "a selected suite did not run");

@@ -4,6 +4,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import * as nodeFs from "node:fs";
+import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 
 import { CODES, paint } from "./colour.mjs";
@@ -15,6 +16,7 @@ import { loadTimings, slowCommandTests, slowFiles, treeState } from "./fast.mjs"
 import { skipDirsFor } from "./graph.mjs";
 import { WIN_TEST, commandKey, expandRun } from "./select.mjs";
 import { argvLimit, commandSpawn } from "./spawn-command.mjs";
+import { withTempRoot } from "./temp-root.mjs";
 
 export { labelOf };
 
@@ -65,7 +67,7 @@ export function countLine(results, colour = false) {
 
 // --- Running ---------------------------------------------------------------
 
-async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, colour, slowMs, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now }) {
+async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, colour, slowMs, tempEnv, _spawn, _spawnSync, _platform, _killTree, _fs, _log, _now }) {
   const cwdAbs = join(repoRoot, run.cwd);
   const label = labelOf(suite, run);
   const base = { suite: suite.name, label, files };
@@ -109,7 +111,7 @@ async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, colou
     try {
       child = _spawn(file, args, {
         cwd: cwdAbs,
-        env: { ...process.env, ...(run.env || {}) },
+        env: { ...process.env, ...tempEnv, ...(run.env || {}) },
         stdio: "inherit",
         detached: _platform !== "win32",
         windowsHide: true,
@@ -130,7 +132,7 @@ async function runOne({ suite, run, files, repoRoot, resultsDir, reporter, colou
   try {
     child = _spawn(process.execPath, args, {
       cwd: cwdAbs,
-      env: { ...process.env, ...(run.env || {}), ...reporterEnv },
+      env: { ...process.env, ...tempEnv, ...(run.env || {}), ...reporterEnv },
       stdio: "inherit",
       detached: _platform !== "win32", // its own process group, so killTree can reach it
       windowsHide: true,
@@ -191,6 +193,7 @@ export async function runSuites(suites, {
   _heartbeatMs = COMMAND_HEARTBEAT_MS,
   _pollMs,
   _readdirSync = nodeFs.readdirSync,
+  _tmpdir = tmpdir,
 } = {}) {
   const resultsDirPath = resultsDir ?? join(repoRoot, "test-results");
   // The raw cache: file entries drive this loop's file skips (a command run's
@@ -214,6 +217,7 @@ export async function runSuites(suites, {
   const shared = {
     repoRoot, colour, slowMs, agent, shims,
     _spawn, _spawnSync, _platform, _killTree, _fs, _log, _writeOut, _writeErr, _now, _heartbeatMs, _pollMs,
+    _tmpdir,
   };
 
   const skipDirs = skipDirsFor(config);
@@ -257,7 +261,8 @@ export async function runSuites(suites, {
           }
           commandSkipArgs = commandSkip.args;
         }
-        results.push(await runCommand({ suite, run, diffBase, resultsDir: resultsDirPath, key: commandKey(run, index), fast, skipArgs: commandSkipArgs, crates, ...shared }));
+        results.push(await withTempRoot({ label, runEnv: run.env, _fs, _tmpdir, _log }, (tempEnv) =>
+          runCommand({ suite, run, diffBase, resultsDir: resultsDirPath, key: commandKey(run, index), fast, skipArgs: commandSkipArgs, crates, tempEnv, ...shared })));
         const commandLog = join(resultsDirPath, `${label}.log`);
         if (_fs.existsSync(commandLog)) _log(`[test] ${label} log: ${commandLog}`);
         continue;
@@ -311,7 +316,8 @@ export async function runSuites(suites, {
         });
         continue;
       }
-      results.push(await runOne({ suite, run, files, resultsDir: resultsDirPath, reporter, ...shared }));
+      results.push(await withTempRoot({ label, runEnv: run.env, _fs, _tmpdir, _log }, (tempEnv) =>
+        runOne({ suite, run, files, resultsDir: resultsDirPath, reporter, tempEnv, ...shared })));
       const logPath = join(resultsDirPath, `${label}.log`);
       if (_fs.existsSync(logPath)) _log(`[test] ${label} log: ${logPath}`);
     }

@@ -12,7 +12,7 @@ import { CODES, RESET } from "../src/colour.mjs";
 import { recordTimings } from "../src/fast.mjs";
 import { killTree } from "../src/execute.mjs";
 import { countLine, runSuites, summaryLine } from "../src/run.mjs";
-import { FIX_GLOB, capture, configOf, graphFixture, stubSpawn, suiteOf } from "./helpers.mjs";
+import { FIX_GLOB, capture, configOf, graphFixture, stubSpawn, suiteOf, tempRoot } from "./helpers.mjs";
 
 const green = (text) => `${CODES.green}${text}${RESET}`;
 const red = (text) => `${CODES.red}${text}${RESET}`;
@@ -25,6 +25,7 @@ test("a run spawns node with the tests in the run's cwd and its env", async (t) 
   await runSuites([suiteOf("fix", [FIX_GLOB], { env: { A: "1" } })], {
     repoRoot: repo,
     _spawn: spawn.spawn,
+    _tmpdir: tempRoot(t),
   });
   const call = spawn.calls[0];
   assert.equal(call.args[0], "--test", "the file list must follow --test");
@@ -47,6 +48,7 @@ test("the reporter child gets TEST_COLOUR and SLOW_MS, and a command run gets ne
       colour: true,
       slowMs: 500,
       _spawn: reporter.spawn,
+      _tmpdir: tempRoot(t),
     });
     const env = reporter.calls[0].opts.env;
     assert.equal(env.TEST_COLOUR, "1");
@@ -58,6 +60,7 @@ test("the reporter child gets TEST_COLOUR and SLOW_MS, and a command run gets ne
       colour: false,
       slowMs: 500,
       _spawn: plain.spawn,
+      _tmpdir: tempRoot(t),
     });
     assert.equal(plain.calls[0].opts.env.TEST_COLOUR, "0");
 
@@ -67,6 +70,7 @@ test("the reporter child gets TEST_COLOUR and SLOW_MS, and a command run gets ne
       colour: true,
       slowMs: 500,
       _spawn: command.spawn,
+      _tmpdir: tempRoot(t),
     });
     const commandEnv = command.calls[0].opts.env;
     assert.equal(commandEnv.TEST_COLOUR, "ambient", "a command run was told how to colour");
@@ -122,6 +126,7 @@ test("a run past its timeout is killed and reported failed", async (t) => {
     _killTree: (pid) => killed.push(pid),
     _log: (line) => lines.push(line),
     _err: () => {},
+    _tmpdir: tempRoot(t),
   });
   assert.equal(code, 1, "a timed-out run must fail the runner");
   assert.deepEqual(killed, [777], "the run's tree was not killed");
@@ -156,6 +161,7 @@ test("a timeout names this run's own unfinished files, and only those", async (t
     _now: () => 125000,
     _log: (line) => lines.push(line),
     _err: () => {},
+    _tmpdir: tempRoot(t),
   });
 
   const out = lines.join("\n");
@@ -176,6 +182,7 @@ test("a missing or corrupt in-flight record leaves the plain timeout reason", as
   writeFileSync(join(repo, "test-results", "slow.777.inflight.json"), "{not json", "utf8");
 
   const lines = [];
+  const tmp = tempRoot(t);
   const run = () => main(["--suite", "slow"], {
     cwd: repo,
     _config: configOf([suite]),
@@ -183,6 +190,7 @@ test("a missing or corrupt in-flight record leaves the plain timeout reason", as
     _killTree: () => {},
     _log: (line) => lines.push(line),
     _err: () => {},
+    _tmpdir: tmp,
   });
 
   assert.equal(await run(), 1);
@@ -211,6 +219,7 @@ test("a run cleared a stale log before a timeout, so the log line is not printed
     _killTree: () => {},
     _log: (line) => lines.push(line),
     _err: () => {},
+    _tmpdir: tempRoot(t),
   });
 
   assert.equal(code, 1);
@@ -227,6 +236,7 @@ test("--fast runs everything with no timings, then skips a measured-slow file", 
   const coldOut = capture();
   assert.equal(await main(["--suite", "fix", "--fast"], {
     cwd: repo, _config: configOf(suites), _spawn: cold.spawn, _log: coldOut.log, _err: coldOut.err,
+    _tmpdir: tempRoot(t),
   }), 0);
   assert.match(coldOut.lines.join("\n"), /--fast: no timings recorded yet; running everything/);
   assert.ok(cold.calls[0].args.includes("plugins/fix/tests/transitive.test.mjs"), "an unmeasured file was skipped");
@@ -241,6 +251,7 @@ test("--fast runs everything with no timings, then skips a measured-slow file", 
   const warmOut = capture();
   assert.equal(await main(["--suite", "fix", "--fast"], {
     cwd: repo, _config: configOf(suites), _spawn: warm.spawn, _log: warmOut.log, _err: warmOut.err,
+    _tmpdir: tempRoot(t),
   }), 0);
   assert.match(
     warmOut.lines.join("\n"),

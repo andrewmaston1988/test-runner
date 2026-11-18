@@ -50,6 +50,15 @@ export function git(cwd, ...args) {
   return r.stdout;
 }
 
+/** An injected `_tmpdir` for runSuites/main: a throwaway parent the test
+ *  removes afterwards, so the package's own runs never leave a root in the
+ *  machine's real temp dir. */
+export function tempRoot(t) {
+  const dir = mkdtempSync(join(tmpdir(), "runner-tmp-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+  return () => dir;
+}
+
 export function makeRepo(t, branch = "master") {
   const dir = mkdtempSync(join(tmpdir(), "runner-"));
   t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));

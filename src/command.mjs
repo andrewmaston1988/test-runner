@@ -38,7 +38,7 @@ function entryOf(event) {
  *  exit code alone stays the verdict: rows follow it, never the other way
  *  round. */
 export async function runCommand({
-  suite, run, repoRoot, resultsDir, diffBase, key, fast, skipArgs, crates, agent, colour, slowMs, shims = {},
+  suite, run, repoRoot, resultsDir, diffBase, key, fast, skipArgs, crates, agent, colour, slowMs, shims = {}, tempEnv,
   _spawn, _spawnSync, _platform, _killTree, _fs, _log, _writeOut, _writeErr, _now, _heartbeatMs, _pollMs,
 }) {
   const cwdAbs = join(repoRoot, run.cwd);
@@ -88,7 +88,7 @@ export async function runCommand({
   try {
     child = _spawn(file, args, {
       cwd: cwdAbs,
-      env: { ...process.env, ...(run.env || {}) },
+      env: { ...process.env, ...tempEnv, ...(run.env || {}) },
       stdio: capture ? ["inherit", "pipe", "pipe"] : "inherit",
       detached: _platform !== "win32",
       windowsHide: true,
