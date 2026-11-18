@@ -30,7 +30,8 @@ if (process.env.PROBE_OUT) {
 }
 test("probe", async () => {
   if (process.env.PROBE_MODE === "fail") throw new Error("probe fails");
-  if (process.env.PROBE_MODE === "timeout") await new Promise(() => {});
+  // A bare pending promise empties the event loop, which node 22 fails at once.
+  if (process.env.PROBE_MODE === "timeout") await new Promise(() => setInterval(() => {}, 1000));
 });
 `;
 
