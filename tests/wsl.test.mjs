@@ -175,7 +175,7 @@ test("wsl.exe is never given a shell string", async () => {
         assert.doesNotMatch(arg, /^["'].*["']$/, `quoted command string in ${arg}`);
       }
       // A command handed over as one string is what wsl.exe re-quotes.
-      for (const arg of args.slice(args.indexOf("--") + 1)) {
+      for (const arg of args.slice(args.indexOf("-e") + 1)) {
         assert.doesNotMatch(
           arg,
           /^(git|rsync|node|rm|mkdir|test|printenv|env)\s+\S/,
@@ -184,6 +184,34 @@ test("wsl.exe is never given a shell string", async () => {
       }
     }
   }
+});
+
+test("every wsl.exe call passes its argv with -e, never a bare -- separator", async () => {
+  const fake = makeFake({ onPath: ["git"] });
+  let stopped;
+  try {
+    await run(fake, { wsl: { ...WSL, requires: ["git"] } });
+  } catch (error) {
+    // The fake cannot split a call's flags from its argv without -e, so a
+    // mutant run stops early; the calls recorded so far still carry the shape.
+    stopped = error;
+  }
+
+  const calls = fake.calls.filter((c) => c.cmd === "wsl.exe" && c.args.join(" ") !== "-l -q");
+  assert.ok(calls.length > 0, "no wsl.exe call was recorded");
+  for (const { args } of calls) {
+    const e = args.indexOf("-e");
+    assert.ok(e > 0, `no -e before the argv: ${args.join(" ")}`);
+    assert.ok(
+      [WSL.distro, MIRROR].includes(args[e - 1]),
+      `-e must follow the distro or the --cd dir: ${args.join(" ")}`,
+    );
+    assert.ok(
+      !args.slice(0, e).includes("--"),
+      `a bare -- separator hands the argv to a shell: ${args.join(" ")}`,
+    );
+  }
+  assert.equal(stopped, undefined, `the run stopped early: ${stopped?.message}`);
 });
 
 test("the mirror is named after the repository and lives under the WSL home", async () => {
@@ -277,8 +305,8 @@ test("wsl.path entries, ~ expanded, lead the PATH every mirror run gets", async 
   const fake = makeFake();
   await run(fake, { wsl: { ...WSL, path: ["~/.cargo/bin", "/opt/tool/bin"] } });
   const last = fake.calls[fake.calls.length - 1].args;
-  assert.equal(last[last.indexOf("--") + 1], "env");
-  assert.equal(last[last.indexOf("--") + 2], `PATH=${HOME}/.cargo/bin:/opt/tool/bin:${DISTRO_PATH}`);
+  assert.equal(last[last.indexOf("-e") + 1], "env");
+  assert.equal(last[last.indexOf("-e") + 2], `PATH=${HOME}/.cargo/bin:/opt/tool/bin:${DISTRO_PATH}`);
 });
 
 test("a missing wsl.requires tool exits 2 naming it, before any sync or run", async () => {
@@ -292,7 +320,7 @@ test("a missing wsl.requires tool exits 2 naming it, before any sync or run", as
   const ran = lines.some((l) => l.startsWith("git clone") || l.startsWith("rsync") || l.includes(" node "));
   assert.ok(!ran, lines.join("\n"));
   const check = fake.calls.find((c) => c.args.includes("no-such-tool")).args;
-  assert.deepEqual(check.slice(check.indexOf("--") + 1), [
+  assert.deepEqual(check.slice(check.indexOf("-e") + 1), [
     "env", `PATH=${DISTRO_PATH}`, "sh", "-c", 'command -v -- "$1"', "requires", "no-such-tool",
   ], "the tool name is an argument, never part of the script");
 });

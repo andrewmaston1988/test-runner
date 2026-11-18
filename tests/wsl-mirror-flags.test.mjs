@@ -42,7 +42,7 @@ test("--wsl forwards --slow-ms into the mirror's runner args", async () => {
 
   assert.equal(code, 0);
   const last = fake.calls[fake.calls.length - 1];
-  const args = last.args.slice(last.args.indexOf("--") + 1);
+  const args = last.args.slice(last.args.indexOf("-e") + 1);
   assert.ok(args.includes("--mirror"), args.join(" "));
   assert.deepEqual(args.slice(-2), ["--slow-ms", "500"], args.join(" "));
 });
@@ -73,7 +73,7 @@ test("--wsl hands the whole run to the mirror and never builds a -p list host-si
 
   assert.equal(code, 0);
   const last = fake.calls[fake.calls.length - 1];
-  const args = last.args.slice(last.args.indexOf("--") + 1);
+  const args = last.args.slice(last.args.indexOf("-e") + 1);
   assert.ok(args.includes("--all"), args.join(" "));
   assert.ok(args.includes("--mirror"), args.join(" "));
   assert.ok(!args.includes("-p"), `the host built a -p list: ${args.join(" ")}`);

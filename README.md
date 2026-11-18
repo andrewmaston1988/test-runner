@@ -14,7 +14,7 @@ There are no runtime dependencies, and it needs Node 22 or newer.
 Install it as a git-pinned devDependency. Nothing is published to the npm registry; to upgrade, bump the tag.
 
 ```json
-{ "devDependencies": { "test-runner": "github:andrewmaston1988/test-runner#v0.1.0" } }
+{ "devDependencies": { "test-runner": "github:andrewmaston1988/test-runner#v0.1.1" } }
 ```
 
 Run it with `npx test-runner`, or from a script: `"test": "test-runner"`.

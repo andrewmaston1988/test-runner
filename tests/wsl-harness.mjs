@@ -2,7 +2,7 @@
 //
 // A fake spawnSync records every call, so the mirror's step ORDER and the
 // ARGUMENT-ARRAY shape of each wsl.exe call are both asserted without a distro.
-// Real distro behaviour is the main session's smoke run.
+// Real distro behaviour is tests/wsl-exec.win.test.mjs, when a distro answers.
 //
 // This lives beside the tests rather than in `helpers.mjs` because only the WSL
 // tests need it.
@@ -25,8 +25,8 @@ export const RUN = ["env", `PATH=${DISTRO_PATH}`, "node", ".test-runner/bin/test
 export const PACKAGE_COPY = ["rsync", "-rlt", "--delete", "--exclude", ".git", "--exclude", "node_modules", "--exclude",
   "test-results", "/mnt/c/code/consumer/node_modules/test-runner/", `${MIRROR}/.test-runner/`];
 
-export const plain = (...argv) => ["-d", DISTRO, "--", ...argv];
-export const inMirror = (...argv) => ["-d", DISTRO, "--cd", MIRROR, "--", ...argv];
+export const plain = (...argv) => ["-d", DISTRO, "-e", ...argv];
+export const inMirror = (...argv) => ["-d", DISTRO, "--cd", MIRROR, "-e", ...argv];
 
 /** Records every spawn and answers with scripted results. */
 export function makeFake(options = {}) {
@@ -59,7 +59,7 @@ export function makeFake(options = {}) {
       return { status: 0, stdout: Buffer.from(list, listEncoding) };
     }
 
-    const inner = args.slice(args.indexOf("--") + 1).join(" ");
+    const inner = args.slice(args.indexOf("-e") + 1).join(" ");
     const step = (value) => (failOn && inner.startsWith(failOn) ? { status: 1, stderr: "boom\n" } : value);
     if (inner === "printenv HOME") return step({ status: 0, stdout: Buffer.from(`${home}\n`) });
     if (inner === "printenv PATH") return step({ status: 0, stdout: Buffer.from(`${DISTRO_PATH}\n`) });
@@ -84,7 +84,7 @@ export function makeFake(options = {}) {
   const innerLines = () =>
     calls
       .filter((c) => c.cmd === "wsl.exe")
-      .map((c) => c.args.slice(c.args.indexOf("--") + 1).join(" "));
+      .map((c) => c.args.slice(c.args.indexOf("-e") + 1).join(" "));
   return { spawn, calls, innerLines };
 }
 

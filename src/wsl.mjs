@@ -8,8 +8,8 @@
 // (-rlt, never -a) and the clone keeps git's own modes; with `-a` every file
 // reads as mode-dirty in the mirror.
 
-// Every wsl.exe call is an argument array with no shell: wsl.exe re-quotes a
-// single command string, which mangles it.
+// Every wsl.exe call is an argument array, built by `wslArgv` below: wsl.exe
+// re-quotes a single command string, which mangles it.
 
 // Exit codes: the suite's own code, or 2 when WSL mode could not run at all.
 
@@ -87,10 +87,18 @@ function expandHome(entry, home) {
   return entry.startsWith("~/") ? `${home}/${entry.slice(2)}` : entry;
 }
 
+/** The argv every wsl.exe call is built from: `-d <distro> [--cd <dir>] -e
+ *  <argv…>`. `-e` runs the argv with no shell, so no argument is re-parsed;
+ *  `--` would hand the joined line to the distro's shell instead. */
+export function wslArgv({ distro, cd }, argv) {
+  return ["-d", distro, ...(cd ? ["--cd", cd] : []), "-e", ...argv];
+}
+
 /** Mirror `repoRoot`, copy this package into it and run it with `runnerArgs`;
  *  resolves to that run's exit code, or 2 when it never ran. `wsl.exe --cd`
- *  starts no login shell, so `~/.cargo/bin` is not on PATH: every mirror run
- *  gets `wsl.path` prepended, and `wsl.requires` is checked before any sync. */
+ *  and `-e` start no login shell, so `~/.cargo/bin` is not on PATH: every
+ *  mirror run gets `wsl.path` prepended, and `wsl.requires` is checked before
+ *  any sync. */
 export async function runWsl({
   repoRoot, packageDir, runnerArgs, wsl: wslConfig, colour = false, _spawnSync, _fs,
   _env = process.env, log,
@@ -113,8 +121,8 @@ export async function runWsl({
       stderr: text(r?.stderr),
     };
   };
-  const inDistro = (...argv) => ["-d", DISTRO, "--", ...argv];
-  const at = (dir, ...argv) => ["-d", DISTRO, "--cd", dir, "--", ...argv];
+  const inDistro = (...argv) => wslArgv({ distro: DISTRO }, argv);
+  const at = (dir, ...argv) => wslArgv({ distro: DISTRO, cd: dir }, argv);
   const run = (label, argv) => {
     const r = wslExe(argv);
     if (r.status !== 0) {
