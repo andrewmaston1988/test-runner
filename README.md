@@ -14,10 +14,12 @@ There are no runtime dependencies, and it needs Node 22 or newer.
 Install it as a git-pinned devDependency. Nothing is published to the npm registry; to upgrade, bump the tag.
 
 ```json
-{ "devDependencies": { "test-runner": "github:andrewmaston1988/test-runner#v0.1.2" } }
+{ "devDependencies": { "@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0" } }
 ```
 
-Run it with `npx --no-install test-runner`, or from a script: `"test": "test-runner"`. Use `--no-install`: a bare `npx test-runner` with no `node_modules` fetches a different package of that name from the registry instead of the one this file adds.
+The command is `test-runr`. Run it with `npx --no-install test-runr`, or from a script: `"test": "test-runr"`. With `--no-install`, a checkout that has not run `npm ci` gets an npm error instead of a download. The command is not the package's old unscoped name, because an unrelated registry package answers to that name: with no local install, npx ran it instead, even under `--no-install` once npx had cached a copy.
+
+Import from the package root only: `import { validateConfig } from "@andrewmaston1988/test-runner"`. The `exports` map exposes the root and `package.json` and refuses every other path, so the file layout can change without breaking a consumer.
 
 ## Config
 
@@ -80,16 +82,16 @@ An invalid config exits 2, naming the field, what is wrong, the fix and an examp
 ## Running
 
 ```sh
-test-runner                    # the diff: changed tests, plus whatever the diff reaches
-test-runner --list             # what would run, and why, without running it
-test-runner --all              # every suite
-test-runner --suite api        # one suite, whole
-test-runner --against main     # measure the diff from this ref
-test-runner --fast             # skip unchanged files measured over 30 s in the last 7 days; fastSkip runs also deselect long-running tests
-test-runner --slow-ms 500      # the yellow threshold and the slow list, instead of 300 ms
-test-runner --platform windows # only the Windows-pinned runs and *.win.test.mjs files
-test-runner --wsl              # the Linux half, in the WSL mirror
-test-runner --orphans          # list test files no suite runs; exit 1 if any
+test-runr                    # the diff: changed tests, plus whatever the diff reaches
+test-runr --list             # what would run, and why, without running it
+test-runr --all              # every suite
+test-runr --suite api        # one suite, whole
+test-runr --against main     # measure the diff from this ref
+test-runr --fast             # skip unchanged files measured over 30 s in the last 7 days; fastSkip runs also deselect long-running tests
+test-runr --slow-ms 500      # the yellow threshold and the slow list, instead of 300 ms
+test-runr --platform windows # only the Windows-pinned runs and *.win.test.mjs files
+test-runr --wsl              # the Linux half, in the WSL mirror
+test-runr --orphans          # list test files no suite runs; exit 1 if any
 ```
 
 `--suite <name> --if-selected` runs the suite whole when the diff selects any of it, and otherwise exits 0 with `not selected by this diff`. This is the CI shape: one job per suite, each deciding for itself.
@@ -149,7 +151,7 @@ Each run has a `platform`: `any` (the default), `windows` or `linux`. A `*.win.t
 - **`--wsl`** runs a plain Linux run in the mirror, so it executes `linux` and `any` runs without the `.win` files.
 - **`--wsl` runs a cargo run whole.** The mirror is handed `--all --mirror`, so it reads no `cargo metadata` and builds no `-p` list: every run executes as declared. Per-crate selection is a host diff-mode feature only. In plain mode a run pinned to another platform is read on this host before the platform filter skips the run itself.
 
-A Windows developer's full gate is `test-runner --platform windows` plus `test-runner --wsl`, and every run executes exactly once across the two. A Linux CI job runs a plain invocation; a Windows CI job runs `--platform windows`.
+A Windows developer's full gate is `test-runr --platform windows` plus `test-runr --wsl`, and every run executes exactly once across the two. A Linux CI job runs a plain invocation; a Windows CI job runs `--platform windows`.
 
 ### `{base}` and `{report}`
 
@@ -301,7 +303,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
-      - run: npx test-runner --suite api ${{ github.event_name == 'pull_request' && format('--if-selected --against {0}', github.event.pull_request.base.sha) || '' }}
+      - run: npx --no-install test-runr --suite api ${{ github.event_name == 'pull_request' && format('--if-selected --against {0}', github.event.pull_request.base.sha) || '' }}
 ```
 
 On `windows-latest`, add `--platform windows`.

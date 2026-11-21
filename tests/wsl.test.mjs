@@ -14,6 +14,7 @@ import {
   HOME,
   MIRROR,
   PACKAGE_COPY,
+  PACKAGE_INSTALL,
   RUN,
   SOURCE,
   TREE,
@@ -339,5 +340,5 @@ test("the mirror runs the host's package copy, never the consumer's node_modules
   const copy = lines.indexOf(PACKAGE_COPY.join(" "));
   const runAt = lines.indexOf(RUN.join(" "));
   assert.ok(copy !== -1 && runAt > copy, lines.join("\n"));
-  assert.ok(!lines.some((l) => l.includes("node_modules/test-runner/bin")), "the consumer's installed copy ran");
+  assert.ok(!lines.some((l) => l.includes(`${PACKAGE_INSTALL}/bin`)), "the consumer's installed copy ran");
 });

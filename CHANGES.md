@@ -1,8 +1,13 @@
-# Changes — 0.1.2
+# Changes — 0.2.0
 
-## Temp files
+This release changes how every project installs, runs and imports the runner. Each project needs the updates below once.
 
-- Every run now gets its own temp directory under a `test-runner` folder in the OS temp directory, and every test process the run starts uses it. The temp files tests leave behind collect in one place instead of piling up across the whole temp directory.
-- A passing run's temp directory is deleted. A run that fails or times out keeps it and prints where it is, because a failing test's evidence is often in there; an empty one is deleted anyway.
-- A run that sets `TEMP`, `TMP` or `TMPDIR` in its own `env` keeps its value and gets no temp directory.
-- If the temp directory cannot be made, for example on a full disk, the run goes ahead without one and says so.
+## A new name and command
+
+- The package is now `@andrewmaston1988/test-runner` and the command is `test-runr`. Install it with `"@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0"`, run it as `npx --no-install test-runr`, and point any `"test"` script at `test-runr`.
+- The old command name also belongs to an unrelated package on the npm registry. In a checkout without its dependencies installed, `npx` used to run that package instead, sometimes even with `--no-install`. Now a missing install stops with an npm error instead of running the wrong tool.
+
+## One public entry point
+
+- Code that uses the runner's functions now imports them from the package itself, not from files inside it. The functions projects already use are all available there.
+- Importing a file from inside the package now fails at once. The runner's internal files can be reorganised without breaking any project.

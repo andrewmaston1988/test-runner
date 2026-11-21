@@ -18,7 +18,7 @@ import { resolveMode } from "./reporter.mjs";
 import { countLine, hostPlatform, labelOf, needsBase, runSuites, summaryLine } from "./run.mjs";
 import { select, wholeEntries } from "./select.mjs";
 
-const USAGE = `usage: test-runner [--all] [--suite <name>] [--against <ref>] [--list] [--wsl]
+const USAGE = `usage: test-runr [--all] [--suite <name>] [--against <ref>] [--list] [--wsl]
        [--reporter=agent|default] [--fast] [--slow-ms <n>] [--if-selected] [--orphans]
        [--config <path>] [--platform windows]`;
 

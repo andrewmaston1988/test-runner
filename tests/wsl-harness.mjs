@@ -14,7 +14,10 @@ export const WSL = { distro: DISTRO, setup: 'TESTING.md, section "The ubuntu dis
 
 export const HEAD = "8aac8ba6e100a08c1aa33c9286aeecd45a21bf36";
 export const REPO_ROOT = "C:\\code\\consumer";
-export const PACKAGE_DIR = "C:\\code\\consumer\\node_modules\\test-runner";
+// Where a consumer's install of this package lands, relative to its root; the
+// host path, the copy's source and the never-run-it guard all derive from it.
+export const PACKAGE_INSTALL = "node_modules/@andrewmaston1988/test-runner";
+export const PACKAGE_DIR = `C:\\code\\consumer\\${PACKAGE_INSTALL.replaceAll("/", "\\")}`;
 export const HOME = "/home/ubuntu";
 export const DISTRO_PATH = "/usr/bin:/bin";
 export const MIRROR = `${HOME}/mirror/consumer`;
@@ -23,7 +26,7 @@ export const TREE = "/mnt/c/code/consumer/";
 export const RUNNER_ARGS = ["--all", "--mirror"];
 export const RUN = ["env", `PATH=${DISTRO_PATH}`, "node", ".test-runner/bin/test-runner.mjs", ...RUNNER_ARGS];
 export const PACKAGE_COPY = ["rsync", "-rlt", "--delete", "--exclude", ".git", "--exclude", "node_modules", "--exclude",
-  "test-results", "/mnt/c/code/consumer/node_modules/test-runner/", `${MIRROR}/.test-runner/`];
+  "test-results", `/mnt/c/code/consumer/${PACKAGE_INSTALL}/`, `${MIRROR}/.test-runner/`];
 
 export const plain = (...argv) => ["-d", DISTRO, "-e", ...argv];
 export const inMirror = (...argv) => ["-d", DISTRO, "--cd", MIRROR, "-e", ...argv];

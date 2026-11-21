@@ -7,7 +7,8 @@ A zero-dependency Node package that runs a repository's tests from its `test-run
 ## Architecture
 
 ```
-bin/test-runner.mjs     entry point; turns main()'s promise into process.exitCode
+bin/test-runner.mjs     entry point (the `test-runr` bin); turns main()'s promise into process.exitCode
+src/index.mjs           the public module `exports` points at: re-exports only, the consumer contract
 src/cli.mjs             flags, config load (incl. .mjs format shims), selection, {base}, summary, exit code
 src/config.mjs          load, validate (field + fix + example), defaults
 src/select.mjs          diff selection: the rule engine, declared paths, Python reach, cargo claims
@@ -40,6 +41,8 @@ The runner was ported from claude-plugin-marketplace's `scripts/test.mjs`. `test
 ## Constraints
 
 - **When adding an import**: only `node:*` builtins and relative paths. Consumers install this package with `npm ci`, and the WSL mirror runs a plain copy of the directory, which has to be complete with nothing installed. `tests/constraints.test.mjs` checks this.
+- **When a consumer needs a function from this package**: re-export it from `src/index.mjs`, never tell them to import a `src/` path. `exports` refuses deep imports, so the file layout stays free to change; `tests/exports.test.mjs` lists every public name and checks the refusal.
+- **When naming the command anywhere a user will type it**: it is `test-runr`, not `test-runner`. `npx test-runner` with no local install runs an unrelated registry package. `tests/constraints.test.mjs` checks the README.
 - **When a file nears 500 lines**: split it by responsibility before adding to it. `run.mjs` and `cli.mjs` were split this way.
 - **When adding a config field or a consumer-specific default**: put it in `src/config.mjs` with validation that names the field, the fix and an example. No suite name, path, branch or distro of any consumer may appear in `src/`; `tests/constraints.test.mjs` checks this.
 - **When a function reaches the process, filesystem, clock or platform**: take it as an underscore-prefixed parameter with the real one as default (`_spawn`, `_fs`, `_now`, `_platform`), so tests inject a fake. The reporter is the exception: `createReporter` takes `now`, `sleep`, `env` and `fs` unprefixed, as its options object.
