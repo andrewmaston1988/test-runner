@@ -19,7 +19,7 @@ Install it as a git-pinned devDependency. Nothing is published to the npm regist
 
 The command is `test-runr`. Run it with `npx --no-install test-runr`, or from a script: `"test": "test-runr"`. With `--no-install`, a checkout that has not run `npm ci` gets an npm error instead of a download. The command is not the package's old unscoped name, because an unrelated registry package answers to that name: with no local install, npx ran it instead, even under `--no-install` once npx had cached a copy.
 
-Import from the package root only: `import { validateConfig } from "@andrewmaston1988/test-runner"`. The `exports` map refuses any path inside the package, so the file layout can change without breaking a consumer.
+Import from the package root only: `import { validateConfig } from "@andrewmaston1988/test-runner"`. The `exports` map exposes the root and `package.json` and refuses every other path, so the file layout can change without breaking a consumer.
 
 ## Config
 
