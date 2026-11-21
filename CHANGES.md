@@ -1,13 +1,13 @@
 # Changes — 0.2.0
 
-This release breaks every consumer's install line, commands and imports. Each needs the changes below.
+This release changes how every project installs, runs and imports the runner. Each project needs the updates below once.
 
 ## A new name and command
 
-- The package is now `@andrewmaston1988/test-runner`, and the command is `test-runr`. Update the dependency to `"@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0"`, `npx --no-install test-runner` to `npx --no-install test-runr`, and `"test": "test-runner"` scripts to `"test": "test-runr"`.
-- The old command name is also the name of an unrelated registry package. With no local install, `npx` ran that package instead, even under `--no-install` once npx had cached it. A missing install now gives an npm error instead.
+- The package is now `@andrewmaston1988/test-runner` and the command is `test-runr`. Install it with `"@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0"`, run it as `npx --no-install test-runr`, and point any `"test"` script at `test-runr`.
+- The old command name also belongs to an unrelated package on the npm registry. In a checkout without its dependencies installed, `npx` used to run that package instead, sometimes even with `--no-install`. Now a missing install stops with an npm error instead of running the wrong tool.
 
-## A public entry point
+## One public entry point
 
-- Import from the package root only: `import { validateConfig } from "@andrewmaston1988/test-runner"`. It exports `main`, `validateConfig`, `expandRun`, `skipDirsFor`, `filePlatform`, `hostPlatform` and `platformAllows`.
-- Imports of files inside the package, such as `test-runner/src/config.mjs`, now fail with `ERR_PACKAGE_PATH_NOT_EXPORTED`. A shim that imported `bin/test-runner.mjs` to run the command now calls `main()` and sets `process.exitCode` from its result.
+- Code that uses the runner's functions now imports them from the package itself, not from files inside it. The functions projects already use are all available there.
+- Importing a file from inside the package now fails at once. The runner's internal files can be reorganised without breaking any project.
