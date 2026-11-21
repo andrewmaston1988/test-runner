@@ -93,6 +93,45 @@ test("the specifier matcher sees every import form, so the check can fail", () =
   assert.deepEqual(bareSpecifiers(sample), ["pkg-a", "pkg-b", "pkg-c", "pkg-d"]);
 });
 
+// The README's invocations of the old command name: `npx [--no-install] test-runner`, a bare
+// `test-runner ...` command at a line start or in inline code, and the `"test": "test-runner"`
+// script value. `test-runner.config.mjs`, `.test-runner/`, `<tmpdir>/test-runner/` and the
+// package path are not invocations, and headings are the repository's name.
+function staleInvocations(text, bin) {
+  const bad = [];
+  for (const line of text.split("\n")) {
+    if (/^#{1,6} /.test(line)) continue;
+    // Only an npx in a code position (line start, inline code, a CI `run:`), so prose
+    // mentioning npx is not read as a command.
+    const npx = [...line.matchAll(/(?:^\s*|`|run:\s+)npx\s+(?:--no-install\s+)?([\w@/.-]+)/g)].map((m) => m[1]);
+    const script = [...line.matchAll(/"test":\s*"([\w@/.-]+)/g)].map((m) => m[1]);
+    const bare = /(?:^|`)test-runner(?=[\s`]|$)/.test(line);
+    if (bare || [...npx, ...script].some((name) => name !== bin)) bad.push(line.trim());
+  }
+  return bad;
+}
+
+test("the README invokes the package by its bin name", () => {
+  const bins = Object.keys(JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).bin);
+  assert.deepEqual(bins, ["test-runr"]);
+  assert.deepEqual(staleInvocations(readFileSync(join(ROOT, "README.md"), "utf8"), "test-runr"), []);
+});
+
+test("the invocation matcher sees every stale form, so the check can fail", () => {
+  const sample = [
+    "Run it with `npx --no-install test-runner`.",
+    'Or from a script: `"test": "test-runner"`.',
+    "A gate is `test-runner --platform windows` plus more.",
+    "test-runner --all              # every suite",
+    "      - run: npx test-runner --suite api",
+    "# test-runner",
+    "With no local install, npx ran it instead.",
+    "`test-runner.config.mjs` at the root; the mirror copy is `.test-runner/`.",
+    "Run it with `npx --no-install test-runr`, or `\"test\": \"test-runr\"`.",
+  ].join("\n");
+  assert.equal(staleInvocations(sample, "test-runr").length, 5);
+});
+
 test("shipped code names no consumer's suite, path or distro", () => {
   // The repositories this runner was extracted for, and their one-off names.
   const consumer = /claude-plugin-marketplace|rts-mobile|plugin-dev|plugins\/\*/i;
