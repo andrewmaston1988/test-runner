@@ -1,3 +1,9 @@
+# Changes — Unreleased
+
+## Kept temp roots are pruned
+
+- A failed or timed-out run keeps its temp root as evidence. Every run now prunes the kept roots first: it keeps the newest three per suite label and removes anything older than three days, so recent failures stay inspectable without the temp dir growing without bound. There is no command to run.
+
 # Changes — 0.2.0
 
 This release changes how every project installs, runs and imports the runner. Each project needs the updates below once.

@@ -20,7 +20,8 @@ src/crates.mjs          the cargo workspace graph from `cargo metadata`; the -p 
 src/changed.mjs         the changed set and its base ref
 src/run.mjs             runSuites: node --test runs, platform filter, the summary lines
 src/command.mjs         command runs: capture, heartbeat, format parsing into rows, {report}
-src/temp-root.mjs       one dispatch's TEMP/TMP/TMPDIR root: deleted on a pass, kept on a failure
+src/temp-root.mjs       one dispatch's TEMP/TMP/TMPDIR root: deleted on a pass, kept on a failure;
+                        kept roots pruned at the next run: newest 3 per label, nothing older than 3 days
 src/execute.mjs         installs, process-tree kill, timeouts, in-flight files
 src/formats.mjs         TAP, libtest and JUnit parsers; --fast skip args per format
 src/spawn-command.mjs   argv -> spawn; the cmd.exe route for Windows .cmd/.bat
