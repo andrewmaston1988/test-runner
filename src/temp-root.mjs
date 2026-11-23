@@ -70,7 +70,9 @@ function sizeOf(fs, path) {
       const name = typeof entry === "string" ? entry : entry.name;
       const child = join(path, name);
       try {
-        const stat = fs.statSync(child);
+        // lstat, not stat: a kept root can hold a junction, and following one
+        // back up the tree would recurse without end before the prune runs.
+        const stat = fs.lstatSync(child);
         total += stat.isDirectory() ? sizeOf(fs, child) : stat.size;
       } catch {}
     }
