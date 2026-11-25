@@ -14,7 +14,7 @@ There are no runtime dependencies, and it needs Node 22 or newer.
 Install it as a git-pinned devDependency. Nothing is published to the npm registry; to upgrade, bump the tag.
 
 ```json
-{ "devDependencies": { "@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0" } }
+{ "devDependencies": { "@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.1" } }
 ```
 
 The command is `test-runr`. Run it with `npx --no-install test-runr`, or from a script: `"test": "test-runr"`. With `--no-install`, a checkout that has not run `npm ci` gets an npm error instead of a download. The command is not the package's old unscoped name, because an unrelated registry package answers to that name: with no local install, npx ran it instead, even under `--no-install` once npx had cached a copy.
@@ -100,7 +100,7 @@ test-runr --orphans          # list test files no suite runs; exit 1 if any
 
 **Exit codes.** 0 means everything that ran passed, including an empty selection. 1 means a run failed or timed out, a whole-suite run matched no file, or `--orphans` found one. 2 means a request or prerequisite failed: an unknown flag or suite, an invalid config, an unresolvable base, or a missing distro or tool.
 
-**Temp roots.** Every run starts with `TEMP`, `TMP` and `TMPDIR` pointing at one fresh `<tmpdir>/test-runner/<label>-XXXXXX` dir, so the temp dirs a test leaves behind collect under that one parent instead of scattering through the OS temp dir. A passing run's root is removed. A run that fails or times out keeps it and prints `[test] <label>: temp root kept at <path>` — a failing test's evidence is usually in there — unless the root is empty, which is removed silently. If the root cannot be made (an unwritable or full temp dir), the run goes ahead without one and says so. The install step runs outside the root: npm's cache staging is not test litter. A `runs[].env` naming `TEMP`, `TMP` or `TMPDIR` opts that run out — its value wins and no root is made. `envFile` is not an opt-out: node's `--env-file` never overrides a variable that is already set, so a temp var in the file loses to the root; put it in `runs[].env` instead.
+**Temp roots.** Every run starts with `TEMP`, `TMP` and `TMPDIR` pointing at one fresh `<tmpdir>/test-runner/<label>-XXXXXX` dir, so the temp dirs a test leaves behind collect under that one parent instead of scattering through the OS temp dir. A passing run's root is removed. A run that fails or times out keeps it and prints `[test] <label>: temp root kept at <path>` — a failing test's evidence is usually in there — unless the root is empty, which is removed silently. The next run prunes the kept roots first: it removes those beyond the newest three per suite label and anything older than three days, never a root written to within the last day, and prints `[test] pruned N kept temp roots (M MB)`. If the root cannot be made (an unwritable or full temp dir), the run goes ahead without one and says so. The install step runs outside the root: npm's cache staging is not test litter. A `runs[].env` naming `TEMP`, `TMP` or `TMPDIR` opts that run out — its value wins and no root is made. `envFile` is not an opt-out: node's `--env-file` never overrides a variable that is already set, so a temp var in the file loses to the root; put it in `runs[].env` instead.
 
 ### What a diff selects
 

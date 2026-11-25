@@ -1,6 +1,6 @@
 {
   "name": "@andrewmaston1988/test-runner",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A config-driven test runner: diff-aware suite selection, a Windows/Linux split through a WSL mirror, and one summary with exit codes 0/1/2.",
   "license": "MIT",
   "repository": {
