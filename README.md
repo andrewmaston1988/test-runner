@@ -14,7 +14,7 @@ There are no runtime dependencies, and it needs Node 22 or newer.
 Install it as a git-pinned devDependency. Nothing is published to the npm registry; to upgrade, bump the tag.
 
 ```json
-{ "devDependencies": { "@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.0" } }
+{ "devDependencies": { "@andrewmaston1988/test-runner": "github:andrewmaston1988/test-runner#v0.2.1" } }
 ```
 
 The command is `test-runr`. Run it with `npx --no-install test-runr`, or from a script: `"test": "test-runr"`. With `--no-install`, a checkout that has not run `npm ci` gets an npm error instead of a download. The command is not the package's old unscoped name, because an unrelated registry package answers to that name: with no local install, npx ran it instead, even under `--no-install` once npx had cached a copy.
